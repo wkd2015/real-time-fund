@@ -748,3 +748,131 @@ body {
     grid-template-columns: 1fr 80px 80px;
   }
 }
+
+/* 截图导入相关样式 */
+.import-modal {
+  max-width: 500px !important;
+}
+
+.import-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.upload-area {
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.upload-area:hover {
+  border-color: var(--primary);
+  background: rgba(34, 211, 238, 0.05);
+}
+
+.import-list {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.import-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.import-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.import-item.selected {
+  border-color: var(--primary);
+  background: rgba(34, 211, 238, 0.08);
+}
+
+.import-item.existing {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.import-item.no-code {
+  border-color: var(--danger);
+  border-style: dashed;
+}
+
+.import-item-checkbox {
+  flex-shrink: 0;
+}
+
+.checkbox {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.checkbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #05263b;
+}
+
+.checkbox.disabled {
+  background: var(--border);
+  border-color: var(--border);
+}
+
+.import-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.import-item-name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.import-item-code {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+}
+
+.import-item-amount {
+  text-align: right;
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .import-button-text {
+    display: none;
+  }
+  .import-button {
+    padding: 0 12px;
+  }
+}

@@ -114,6 +114,44 @@ function WalletIcon(props) {
   );
 }
 
+function UploadIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="17 8 12 3 7 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ImageIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" strokeWidth="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="2" />
+      <polyline points="21 15 16 10 5 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CheckIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function AlertIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+      <line x1="12" y1="8" x2="12" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <line x1="12" y1="16" x2="12.01" y2="16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function Stat({ label, value, delta, small }) {
   const dir = delta > 0 ? 'up' : delta < 0 ? 'down' : '';
   return (
@@ -305,6 +343,416 @@ function PortfolioSummary({ funds, holdings }) {
   );
 }
 
+// 基金名称搜索函数
+const searchFundByName = (name) => {
+  return new Promise((resolve) => {
+    const callbackName = `fundSearch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const script = document.createElement('script');
+    const cleanName = name.replace(/[股票|混合|债券|指数|LOF|ETF|联接|A|C]$/g, '').trim();
+    
+    window[callbackName] = (data) => {
+      delete window[callbackName];
+      if (document.body.contains(script)) document.body.removeChild(script);
+      
+      if (data && data.Datas && data.Datas.length > 0) {
+        // 返回第一个匹配结果
+        const fund = data.Datas[0];
+        resolve({
+          code: fund.CODE,
+          name: fund.NAME,
+          type: fund.FundBaseInfo?.FTYPE || ''
+        });
+      } else {
+        resolve(null);
+      }
+    };
+    
+    script.src = `https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?callback=${callbackName}&m=1&key=${encodeURIComponent(cleanName)}&_=${Date.now()}`;
+    script.onerror = () => {
+      delete window[callbackName];
+      if (document.body.contains(script)) document.body.removeChild(script);
+      resolve(null);
+    };
+    
+    document.body.appendChild(script);
+    
+    // 超时处理
+    setTimeout(() => {
+      if (window[callbackName]) {
+        delete window[callbackName];
+        if (document.body.contains(script)) document.body.removeChild(script);
+        resolve(null);
+      }
+    }, 5000);
+  });
+};
+
+// 解析蚂蚁财富截图文本
+const parseAntFortunText = (text) => {
+  const results = [];
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  
+  // 蚂蚁财富的格式通常是：
+  // 基金名称
+  // 持有金额 xxx.xx
+  // 持有收益 +xxx.xx 或 -xxx.xx
+  
+  let currentFund = null;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // 检测基金名称（包含"基金"、"股票"、"混合"、"债券"、"指数"等关键词）
+    if (/[基金股票混合债券指数ETF]/.test(line) && !/持有|收益|金额|昨日|累计/.test(line)) {
+      if (currentFund && currentFund.name) {
+        results.push(currentFund);
+      }
+      currentFund = { name: line, amount: 0, profit: 0 };
+      continue;
+    }
+    
+    // 检测金额（持有金额、持有市值等）
+    const amountMatch = line.match(/(?:持有[金额市值]?|金额)[^\d]*?([\d,]+\.?\d*)/);
+    if (amountMatch && currentFund) {
+      currentFund.amount = parseFloat(amountMatch[1].replace(/,/g, '')) || 0;
+      continue;
+    }
+    
+    // 检测收益（持有收益）
+    const profitMatch = line.match(/(?:持有收益|收益)[^\d]*?([+-]?[\d,]+\.?\d*)/);
+    if (profitMatch && currentFund) {
+      currentFund.profit = parseFloat(profitMatch[1].replace(/,/g, '')) || 0;
+      continue;
+    }
+    
+    // 单独的数字行可能是金额
+    const pureNumberMatch = line.match(/^([+-]?[\d,]+\.?\d*)$/);
+    if (pureNumberMatch && currentFund) {
+      const num = parseFloat(pureNumberMatch[1].replace(/,/g, '')) || 0;
+      if (currentFund.amount === 0 && num > 100) {
+        currentFund.amount = num;
+      } else if (currentFund.profit === 0 && Math.abs(num) < currentFund.amount) {
+        currentFund.profit = num;
+      }
+    }
+  }
+  
+  // 添加最后一个基金
+  if (currentFund && currentFund.name) {
+    results.push(currentFund);
+  }
+  
+  return results.filter(f => f.name && f.amount > 0);
+};
+
+// 截图导入弹窗
+function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
+  const [step, setStep] = useState('upload'); // upload, recognizing, preview
+  const [image, setImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrText, setOcrText] = useState('');
+  const [parsedFunds, setParsedFunds] = useState([]);
+  const [selectedFunds, setSelectedFunds] = useState(new Set());
+  const [searchingCodes, setSearchingCodes] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      setError('请选择图片文件');
+      return;
+    }
+    
+    setError('');
+    setImage(file);
+    setImagePreview(URL.createObjectURL(file));
+    setStep('recognizing');
+    
+    // 动态导入 tesseract.js
+    try {
+      const Tesseract = (await import('tesseract.js')).default;
+      
+      const result = await Tesseract.recognize(file, 'chi_sim', {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setOcrProgress(Math.round(m.progress * 100));
+          }
+        }
+      });
+      
+      setOcrText(result.data.text);
+      
+      // 解析识别结果
+      const parsed = parseAntFortunText(result.data.text);
+      
+      if (parsed.length === 0) {
+        setError('未能识别到基金信息，请确保截图清晰且包含基金持仓');
+        setStep('upload');
+        return;
+      }
+      
+      // 搜索基金代码
+      setSearchingCodes(true);
+      const fundsWithCodes = [];
+      
+      for (const fund of parsed) {
+        const searchResult = await searchFundByName(fund.name);
+        fundsWithCodes.push({
+          ...fund,
+          code: searchResult?.code || '',
+          matchedName: searchResult?.name || fund.name,
+          isExisting: searchResult?.code ? existingFunds.some(f => f.code === searchResult.code) : false
+        });
+      }
+      
+      setParsedFunds(fundsWithCodes);
+      // 默认选中所有非重复的基金
+      setSelectedFunds(new Set(fundsWithCodes.filter(f => f.code && !f.isExisting).map((_, i) => i)));
+      setSearchingCodes(false);
+      setStep('preview');
+      
+    } catch (err) {
+      console.error('OCR 识别失败', err);
+      setError('识别失败：' + (err.message || '未知错误'));
+      setStep('upload');
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const input = fileInputRef.current;
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      input.files = dataTransfer.files;
+      handleFileChange({ target: input });
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const toggleSelect = (index) => {
+    setSelectedFunds(prev => {
+      const next = new Set(prev);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  };
+
+  const handleImport = () => {
+    const toImport = parsedFunds
+      .filter((_, i) => selectedFunds.has(i))
+      .filter(f => f.code && !f.isExisting)
+      .map(f => ({
+        code: f.code,
+        amount: f.amount,
+        profit: f.profit
+      }));
+    
+    if (toImport.length === 0) {
+      setError('没有可导入的基金');
+      return;
+    }
+    
+    onImport(toImport);
+  };
+
+  const updateFundCode = (index, newCode) => {
+    setParsedFunds(prev => {
+      const next = [...prev];
+      next[index] = {
+        ...next[index],
+        code: newCode,
+        isExisting: newCode ? existingFunds.some(f => f.code === newCode) : false
+      };
+      return next;
+    });
+  };
+
+  return (
+    <motion.div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="截图导入"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="glass card modal import-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ImageIcon width="20" height="20" />
+            <span>截图导入持仓</span>
+          </div>
+          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
+            <CloseIcon width="20" height="20" />
+          </button>
+        </div>
+
+        {step === 'upload' && (
+          <>
+            <div 
+              className="upload-area"
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <UploadIcon width="48" height="48" style={{ color: 'var(--muted)', marginBottom: 16 }} />
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>点击或拖拽上传截图</div>
+              <div className="muted" style={{ fontSize: 13 }}>支持蚂蚁财富基金持仓截图</div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+              />
+            </div>
+            {error && (
+              <div style={{ marginTop: 12, color: 'var(--danger)', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <AlertIcon width="16" height="16" />
+                {error}
+              </div>
+            )}
+            <div className="muted" style={{ marginTop: 16, fontSize: 12, lineHeight: 1.6 }}>
+              <p style={{ marginBottom: 8 }}>使用说明：</p>
+              <p>1. 打开蚂蚁财富 App，进入基金持仓页面</p>
+              <p>2. 截图并上传到此处</p>
+              <p>3. 系统将自动识别基金名称和持仓金额</p>
+            </div>
+          </>
+        )}
+
+        {step === 'recognizing' && (
+          <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+            {imagePreview && (
+              <img 
+                src={imagePreview} 
+                alt="截图预览" 
+                style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 20, opacity: 0.6 }}
+              />
+            )}
+            <div style={{ marginBottom: 16 }}>
+              <RefreshIcon width="24" height="24" className="spin" style={{ color: 'var(--primary)' }} />
+            </div>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+              {searchingCodes ? '正在搜索基金代码...' : '正在识别截图...'}
+            </div>
+            <div className="muted" style={{ fontSize: 13 }}>
+              {searchingCodes ? '请稍候' : `识别进度: ${ocrProgress}%`}
+            </div>
+            <div style={{ marginTop: 16, height: 4, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ 
+                width: `${searchingCodes ? 100 : ocrProgress}%`, 
+                height: '100%', 
+                background: 'var(--primary)',
+                transition: 'width 0.3s ease'
+              }} />
+            </div>
+          </div>
+        )}
+
+        {step === 'preview' && (
+          <>
+            <div style={{ marginBottom: 16 }}>
+              <div className="muted" style={{ fontSize: 13, marginBottom: 8 }}>
+                识别到 {parsedFunds.length} 只基金，请确认并选择要导入的基金：
+              </div>
+            </div>
+            
+            <div className="import-list">
+              {parsedFunds.map((fund, index) => (
+                <div 
+                  key={index} 
+                  className={`import-item ${selectedFunds.has(index) ? 'selected' : ''} ${fund.isExisting ? 'existing' : ''} ${!fund.code ? 'no-code' : ''}`}
+                  onClick={() => fund.code && !fund.isExisting && toggleSelect(index)}
+                >
+                  <div className="import-item-checkbox">
+                    {fund.code && !fund.isExisting ? (
+                      <div className={`checkbox ${selectedFunds.has(index) ? 'checked' : ''}`}>
+                        {selectedFunds.has(index) && <CheckIcon width="14" height="14" />}
+                      </div>
+                    ) : (
+                      <div className="checkbox disabled">
+                        {fund.isExisting ? '已' : '?'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="import-item-info">
+                    <div className="import-item-name">{fund.name}</div>
+                    <div className="import-item-code">
+                      {fund.code ? (
+                        <span>#{fund.code}</span>
+                      ) : (
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="输入基金代码"
+                          style={{ height: 28, fontSize: 12, padding: '0 8px', width: 100 }}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => updateFundCode(index, e.target.value.trim())}
+                        />
+                      )}
+                      {fund.isExisting && <span className="muted" style={{ marginLeft: 8 }}>已添加</span>}
+                    </div>
+                  </div>
+                  <div className="import-item-amount">
+                    <div style={{ fontWeight: 600 }}>{fund.amount.toFixed(2)}</div>
+                    <div className={`${fund.profit >= 0 ? 'up' : 'down'}`} style={{ fontSize: 12 }}>
+                      {fund.profit >= 0 ? '+' : ''}{fund.profit.toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {error && (
+              <div style={{ marginTop: 12, color: 'var(--danger)', fontSize: 13 }}>{error}</div>
+            )}
+
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 20, gap: 12 }}>
+              <button 
+                className="button" 
+                onClick={() => { setStep('upload'); setImage(null); setImagePreview(null); setParsedFunds([]); setError(''); }}
+                style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)', flex: 1 }}
+              >
+                重新上传
+              </button>
+              <button 
+                className="button" 
+                onClick={handleImport}
+                disabled={selectedFunds.size === 0}
+                style={{ flex: 1 }}
+              >
+                导入 ({selectedFunds.size})
+              </button>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function FeedbackModal({ onClose }) {
   const [state, handleSubmit] = useForm("xdadgvjd");
 
@@ -433,6 +881,9 @@ export default function HomePage() {
   // 持仓信息状态 { [code]: { shares: number, costPrice: number } }
   const [holdings, setHoldings] = useState({});
   const [editingFund, setEditingFund] = useState(null);
+
+  // 截图导入弹窗状态
+  const [importModalOpen, setImportModalOpen] = useState(false);
 
   const toggleFavorite = (code) => {
     setFavorites(prev => {
@@ -804,6 +1255,58 @@ export default function HomePage() {
     setSettingsOpen(false);
   };
 
+  // 处理截图导入
+  const handleImportFromScreenshot = async (importedFunds) => {
+    setImportModalOpen(false);
+    setLoading(true);
+    
+    try {
+      const newFunds = [];
+      const newHoldings = { ...holdings };
+      
+      for (const item of importedFunds) {
+        // 检查是否已存在
+        if (funds.some(f => f.code === item.code)) {
+          continue;
+        }
+        
+        try {
+          const data = await fetchFundData(item.code);
+          newFunds.push(data);
+          
+          // 根据导入的金额计算份额
+          const gsz = parseFloat(data.gsz) || 1;
+          const shares = item.amount / gsz;
+          
+          // 计算成本价（基于当前市值和收益）
+          const costValue = item.amount - item.profit;
+          const costPrice = costValue > 0 ? costValue / shares : 0;
+          
+          newHoldings[item.code] = {
+            shares: shares,
+            costPrice: costPrice
+          };
+        } catch (e) {
+          console.error(`导入基金 ${item.code} 失败`, e);
+        }
+      }
+      
+      if (newFunds.length > 0) {
+        const next = [...newFunds, ...funds];
+        setFunds(next);
+        localStorage.setItem('funds', JSON.stringify(next));
+        
+        setHoldings(newHoldings);
+        localStorage.setItem('holdings', JSON.stringify(newHoldings));
+      }
+    } catch (e) {
+      console.error('导入失败', e);
+      setError('导入失败：' + (e.message || '未知错误'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const onKey = (ev) => {
       if (ev.key === 'Escape' && settingsOpen) setSettingsOpen(false);
@@ -867,6 +1370,17 @@ export default function HomePage() {
             />
             <button className="button" type="submit" disabled={loading}>
               {loading ? '添加中…' : '添加'}
+            </button>
+            <button 
+              type="button"
+              className="button import-button" 
+              onClick={() => setImportModalOpen(true)}
+              disabled={loading}
+              title="从蚂蚁财富截图导入"
+              style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)' }}
+            >
+              <ImageIcon width="18" height="18" />
+              <span className="import-button-text">截图导入</span>
             </button>
           </form>
           {error && <div className="muted" style={{ marginTop: 8, color: 'var(--danger)' }}>{error}</div>}
@@ -1254,6 +1768,16 @@ export default function HomePage() {
             holding={holdings[editingFund.code]}
             onSave={(data) => saveHolding(editingFund.code, data)}
             onClose={() => setEditingFund(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {importModalOpen && (
+          <ImportScreenshotModal
+            existingFunds={funds}
+            onImport={handleImportFromScreenshot}
+            onClose={() => setImportModalOpen(false)}
           />
         )}
       </AnimatePresence>
