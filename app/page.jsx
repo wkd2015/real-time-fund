@@ -971,6 +971,7 @@ export default function HomePage() {
 
   // 排序状态
   const [sortBy, setSortBy] = useState('default'); // default, name, yield, code
+  const [sortOrder, setSortOrder] = useState('desc'); // desc: 降序, asc: 升序
 
   // 视图模式
   const [viewMode, setViewMode] = useState('card'); // card, list
@@ -1628,10 +1629,10 @@ export default function HomePage() {
                     {[
                       { id: 'default', label: '默认' },
                       { id: 'yield', label: '涨跌幅' },
+                      { id: 'dayProfit', label: '今日盈亏' },
+                      { id: 'profit', label: '累计盈亏' },
                       { id: 'marketValue', label: '市值' },
-                      { id: 'profit', label: '盈亏' },
-                      { id: 'name', label: '名称' },
-                      { id: 'code', label: '代码' }
+                      { id: 'name', label: '名称' }
                     ].map((s) => (
                       <button
                         key={s.id}
@@ -1642,6 +1643,16 @@ export default function HomePage() {
                         {s.label}
                       </button>
                     ))}
+                    {sortBy !== 'default' && (
+                      <button
+                        className="chip sort-order-btn"
+                        onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                        style={{ height: '28px', fontSize: '12px', padding: '0 10px', marginLeft: 4 }}
+                        title={sortOrder === 'desc' ? '当前：降序，点击切换升序' : '当前：升序，点击切换降序'}
+                      >
+                        {sortOrder === 'desc' ? '↓ 降序' : '↑ 升序'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1660,32 +1671,50 @@ export default function HomePage() {
                 transition={{ duration: 0.2 }}
                 className={viewMode === 'card' ? 'grid' : 'table-container glass'}
               >
+                {/* 列表模式表头 */}
+                {viewMode === 'list' && (
+                  <div className="table-header-row">
+                    <div className="table-cell">名称</div>
+                    <div className="table-cell text-right">涨跌</div>
+                    <div className="table-cell text-right">今日盈亏</div>
+                    <div className="table-cell text-right">累计盈亏</div>
+                    <div className="table-cell text-right">收益率</div>
+                    <div className="table-cell text-center">操作</div>
+                  </div>
+                )}
                 <div className={viewMode === 'card' ? 'grid col-12' : ''} style={viewMode === 'card' ? { gridColumn: 'span 12', gap: 16 } : {}}>
                   <AnimatePresence mode="popLayout">
                     {funds
                       .filter(f => currentTab === 'all' || favorites.has(f.code))
                       .sort((a, b) => {
+                        const dir = sortOrder === 'asc' ? 1 : -1;
                         if (sortBy === 'yield') {
                           const valA = typeof a.estGszzl === 'number' ? a.estGszzl : (Number(a.gszzl) || 0);
                           const valB = typeof b.estGszzl === 'number' ? b.estGszzl : (Number(b.gszzl) || 0);
-                          return valB - valA;
+                          return (valB - valA) * dir;
                         }
                         if (sortBy === 'marketValue') {
                           const hA = calcHoldingData(a);
                           const hB = calcHoldingData(b);
                           const mvA = hA?.marketValue || 0;
                           const mvB = hB?.marketValue || 0;
-                          return mvB - mvA;
+                          return (mvB - mvA) * dir;
+                        }
+                        if (sortBy === 'dayProfit') {
+                          const hA = calcHoldingData(a);
+                          const hB = calcHoldingData(b);
+                          const dpA = hA?.dayProfit || 0;
+                          const dpB = hB?.dayProfit || 0;
+                          return (dpB - dpA) * dir;
                         }
                         if (sortBy === 'profit') {
                           const hA = calcHoldingData(a);
                           const hB = calcHoldingData(b);
                           const pA = hA?.profit || 0;
                           const pB = hB?.profit || 0;
-                          return pB - pA;
+                          return (pB - pA) * dir;
                         }
-                        if (sortBy === 'name') return a.name.localeCompare(b.name, 'zh-CN');
-                        if (sortBy === 'code') return a.code.localeCompare(b.code);
+                        if (sortBy === 'name') return a.name.localeCompare(b.name, 'zh-CN') * dir;
                         return 0; // default order is the order in the array
                       })
                       .map((f) => (
@@ -1700,58 +1729,79 @@ export default function HomePage() {
                       >
                       <div className={viewMode === 'card' ? 'glass card' : 'table-row'}>
                         {viewMode === 'list' ? (
-                          <>
-                            <div className="table-cell name-cell">
-                              <button
-                                className={`icon-button fav-button ${favorites.has(f.code) ? 'active' : ''}`}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleFavorite(f.code);
-                                }}
-                                title={favorites.has(f.code) ? "取消自选" : "添加自选"}
-                              >
-                                <StarIcon width="18" height="18" filled={favorites.has(f.code)} />
-                              </button>
-                              <div className="title-text">
-                                <span className="name-text">{f.name}</span>
-                                <span className="muted code-text">#{f.code}</span>
-                              </div>
-                              {holdings[f.code]?.shares > 0 && (
-                                <span className="holding-badge" title={`持有 ${holdings[f.code].shares.toFixed(2)} 份`}>
-                                  <WalletIcon width="12" height="12" />
-                                </span>
-                              )}
-                            </div>
-                            <div className="table-cell text-right value-cell">
-                              <span style={{ fontWeight: 700 }}>{f.estPricedCoverage > 0.05 ? f.estGsz.toFixed(4) : (f.gsz ?? '—')}</span>
-                            </div>
-                            <div className="table-cell text-right change-cell">
-                              <span className={f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : '')} style={{ fontWeight: 700 }}>
-                                {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (typeof f.gszzl === 'number' ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
-                              </span>
-                            </div>
-                            <div className="table-cell text-right time-cell">
-                              <span className="muted" style={{ fontSize: '12px' }}>{f.gztime || f.time || '-'}</span>
-                            </div>
-                            <div className="table-cell text-center action-cell">
-                              <button
-                                className="icon-button"
-                                onClick={() => setEditingFund(f)}
-                                title="编辑持仓"
-                                style={{ width: '28px', height: '28px' }}
-                              >
-                                <EditIcon width="14" height="14" />
-                              </button>
-                              <button
-                                className="icon-button danger"
-                                onClick={() => removeFund(f.code)}
-                                title="删除"
-                                style={{ width: '28px', height: '28px' }}
-                              >
-                                <TrashIcon width="14" height="14" />
-                              </button>
-                            </div>
-                          </>
+                          (() => {
+                            const holdingData = calcHoldingData(f);
+                            return (
+                              <>
+                                <div className="table-cell name-cell">
+                                  <button
+                                    className={`icon-button fav-button ${favorites.has(f.code) ? 'active' : ''}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleFavorite(f.code);
+                                    }}
+                                    title={favorites.has(f.code) ? "取消自选" : "添加自选"}
+                                  >
+                                    <StarIcon width="16" height="16" filled={favorites.has(f.code)} />
+                                  </button>
+                                  <span className="list-name-text" title={f.name}>{f.name}</span>
+                                </div>
+                                <div className="table-cell text-right change-cell">
+                                  <span className={f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : '')} style={{ fontWeight: 700 }}>
+                                    {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (typeof f.gszzl === 'number' ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
+                                  </span>
+                                </div>
+                                {/* 今日盈亏列 */}
+                                <div className="table-cell text-right holding-profit-cell">
+                                  {holdingData ? (
+                                    <span className={holdingData.dayProfit > 0 ? 'up' : holdingData.dayProfit < 0 ? 'down' : ''} style={{ fontWeight: 600 }}>
+                                      {holdingData.dayProfit > 0 ? '+' : ''}{holdingData.dayProfit.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </div>
+                                {/* 累计盈亏列 */}
+                                <div className="table-cell text-right total-profit-cell">
+                                  {holdingData && holdingData.costValue > 0 ? (
+                                    <span className={holdingData.profit > 0 ? 'up' : holdingData.profit < 0 ? 'down' : ''} style={{ fontWeight: 600 }}>
+                                      {holdingData.profit > 0 ? '+' : ''}{holdingData.profit.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </div>
+                                {/* 收益率列 */}
+                                <div className="table-cell text-right profit-rate-cell">
+                                  {holdingData && holdingData.costValue > 0 ? (
+                                    <span className={holdingData.profitRate > 0 ? 'up' : holdingData.profitRate < 0 ? 'down' : ''} style={{ fontWeight: 600 }}>
+                                      {holdingData.profitRate > 0 ? '+' : ''}{holdingData.profitRate.toFixed(2)}%
+                                    </span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </div>
+                                <div className="table-cell text-center action-cell">
+                                  <button
+                                    className="icon-button"
+                                    onClick={() => setEditingFund(f)}
+                                    title="编辑持仓"
+                                    style={{ width: '28px', height: '28px' }}
+                                  >
+                                    <EditIcon width="14" height="14" />
+                                  </button>
+                                  <button
+                                    className="icon-button danger"
+                                    onClick={() => removeFund(f.code)}
+                                    title="删除"
+                                    style={{ width: '28px', height: '28px' }}
+                                  >
+                                    <TrashIcon width="14" height="14" />
+                                  </button>
+                                </div>
+                              </>
+                            );
+                          })()
                         ) : (
                           <>
                           <div className="row" style={{ marginBottom: 10 }}>

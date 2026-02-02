@@ -400,10 +400,10 @@ body {
 
 .table-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1.5fr 60px;
+  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
   align-items: center;
-  gap: 12px;
-  padding: 12px 24px !important;
+  gap: 8px;
+  padding: 10px 16px !important;
   border-bottom: 1px solid var(--border);
   transition: background-color 0.2s ease;
 }
@@ -418,11 +418,13 @@ body {
 
 .table-header-row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1.5fr 60px;
-  gap: 12px;
-  padding: 16px 24px;
+  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
+  gap: 8px;
+  padding: 10px 16px;
   background: rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .table-header-cell {
@@ -462,6 +464,13 @@ body {
   font-size: 11px;
 }
 
+@media (max-width: 1024px) {
+  .table-row,
+  .table-header-row {
+    grid-template-columns: minmax(100px, 2fr) 0.8fr 1fr 1fr 0.8fr 60px;
+  }
+}
+
 @media (max-width: 768px) {
   .table-header-row {
     display: none;
@@ -487,6 +496,12 @@ body {
   }
   .table-cell.time-cell span {
     font-size: 10px !important;
+  }
+  /* 移动端隐藏持仓相关列 */
+  .holding-profit-cell,
+  .total-profit-cell,
+  .profit-rate-cell {
+    display: none !important;
   }
 }
 
@@ -732,11 +747,29 @@ body {
 
 /* 列表视图操作按钮调整 */
 .table-row {
-  grid-template-columns: 2fr 1fr 1fr 1.5fr 90px;
+  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
 }
 
 .table-header-row {
-  grid-template-columns: 2fr 1fr 1fr 1.5fr 90px;
+  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
+}
+
+/* 列表模式名称样式 */
+.list-name-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* 排序方向按钮 */
+.sort-order-btn {
+  background: var(--primary) !important;
+  color: #05263b !important;
+  font-weight: 600;
 }
 
 .action-cell {
@@ -745,7 +778,7 @@ body {
 
 @media (max-width: 768px) {
   .table-row {
-    grid-template-columns: 1fr 80px 80px;
+    grid-template-columns: 1fr 80px 80px !important;
   }
 }
 
