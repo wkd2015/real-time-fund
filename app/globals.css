@@ -876,3 +876,19 @@ body {
     padding: 0 12px;
   }
 }
+
+/* 数据管理按钮 */
+.data-button {
+  height: 40px;
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .data-button {
+    font-size: 13px;
+    padding: 0 12px;
+  }
+  .data-button span {
+    display: none;
+  }
+}

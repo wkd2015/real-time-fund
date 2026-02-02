@@ -152,6 +152,24 @@ function AlertIcon(props) {
   );
 }
 
+function DownloadIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="7 10 12 15 17 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FolderIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function Stat({ label, value, delta, small }) {
   const dir = delta > 0 ? 'up' : delta < 0 ? 'down' : '';
   return (
@@ -1315,6 +1333,93 @@ export default function HomePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [settingsOpen]);
 
+  // 导出数据到 JSON 文件
+  const exportData = () => {
+    const data = {
+      version: 1,
+      exportTime: new Date().toISOString(),
+      funds: funds,
+      holdings: holdings,
+      favorites: Array.from(favorites),
+      collapsedCodes: Array.from(collapsedCodes),
+      refreshMs: refreshMs,
+      viewMode: viewMode
+    };
+    
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fund-data-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // 从 JSON 文件导入数据
+  const importData = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        
+        // 验证数据格式
+        if (!data.funds || !Array.isArray(data.funds)) {
+          alert('无效的数据文件');
+          return;
+        }
+        
+        // 恢复数据
+        if (data.funds) {
+          setFunds(data.funds);
+          localStorage.setItem('funds', JSON.stringify(data.funds));
+        }
+        if (data.holdings) {
+          setHoldings(data.holdings);
+          localStorage.setItem('holdings', JSON.stringify(data.holdings));
+        }
+        if (data.favorites && Array.isArray(data.favorites)) {
+          setFavorites(new Set(data.favorites));
+          localStorage.setItem('favorites', JSON.stringify(data.favorites));
+        }
+        if (data.collapsedCodes && Array.isArray(data.collapsedCodes)) {
+          setCollapsedCodes(new Set(data.collapsedCodes));
+          localStorage.setItem('collapsedCodes', JSON.stringify(data.collapsedCodes));
+        }
+        if (data.refreshMs) {
+          setRefreshMs(data.refreshMs);
+          setTempSeconds(Math.round(data.refreshMs / 1000));
+          localStorage.setItem('refreshMs', String(data.refreshMs));
+        }
+        if (data.viewMode) {
+          setViewMode(data.viewMode);
+          localStorage.setItem('viewMode', data.viewMode);
+        }
+        
+        alert('数据导入成功！');
+        setSettingsOpen(false);
+        
+        // 刷新基金数据
+        const codes = data.funds.map(f => f.code);
+        if (codes.length) refreshAll(codes);
+        
+      } catch (err) {
+        console.error('导入失败', err);
+        alert('导入失败：文件格式错误');
+      }
+    };
+    reader.readAsText(file);
+    
+    // 清空 input 以便重复选择同一文件
+    e.target.value = '';
+  };
+
+  const importFileRef = useRef(null);
+
   return (
     <div className="container content">
       <Announcement />
@@ -1785,13 +1890,17 @@ export default function HomePage() {
       {settingsOpen && (
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="设置" onClick={() => setSettingsOpen(false)}>
           <div className="glass card modal" onClick={(e) => e.stopPropagation()}>
-            <div className="title" style={{ marginBottom: 12 }}>
-              <SettingsIcon width="20" height="20" />
-              <span>设置</span>
-              <span className="muted">配置刷新频率</span>
+            <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <SettingsIcon width="20" height="20" />
+                <span>设置</span>
+              </div>
+              <button className="icon-button" onClick={() => setSettingsOpen(false)} style={{ border: 'none', background: 'transparent' }}>
+                <CloseIcon width="20" height="20" />
+              </button>
             </div>
 
-            <div className="form-group" style={{ marginBottom: 16 }}>
+            <div className="form-group" style={{ marginBottom: 20 }}>
               <div className="muted" style={{ marginBottom: 8, fontSize: '0.8rem' }}>刷新频率</div>
               <div className="chips" style={{ marginBottom: 12 }}>
                 {[10, 30, 60, 120, 300].map((s) => (
@@ -1815,6 +1924,43 @@ export default function HomePage() {
                 onChange={(e) => setTempSeconds(Number(e.target.value))}
                 placeholder="自定义秒数"
               />
+            </div>
+
+            <div style={{ height: 1, background: 'var(--border)', margin: '20px 0' }} />
+
+            <div className="form-group" style={{ marginBottom: 16 }}>
+              <div className="muted" style={{ marginBottom: 12, fontSize: '0.8rem' }}>数据管理</div>
+              <div className="muted" style={{ marginBottom: 12, fontSize: '12px', lineHeight: 1.5 }}>
+                导出数据可保存到 iCloud Drive，在其他设备导入即可同步
+              </div>
+              <div className="row" style={{ gap: 12 }}>
+                <button 
+                  className="button data-button" 
+                  onClick={exportData}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                >
+                  <DownloadIcon width="18" height="18" />
+                  <span>导出数据</span>
+                </button>
+                <button 
+                  className="button data-button" 
+                  onClick={() => importFileRef.current?.click()}
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)' }}
+                >
+                  <FolderIcon width="18" height="18" />
+                  <span>导入数据</span>
+                </button>
+                <input
+                  ref={importFileRef}
+                  type="file"
+                  accept=".json"
+                  onChange={importData}
+                  style={{ display: 'none' }}
+                />
+              </div>
+              <div className="muted" style={{ marginTop: 8, fontSize: '11px' }}>
+                当前共 {funds.length} 只基金，{Object.keys(holdings).filter(k => holdings[k]?.shares > 0).length} 只有持仓
+              </div>
             </div>
 
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 24 }}>
