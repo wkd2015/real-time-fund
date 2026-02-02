@@ -1,0 +1,73 @@
+---
+description: CSS 样式规范和设计系统
+alwaysApply: true
+---
+
+# 样式规范
+
+## CSS 变量
+
+使用 `:root` 中定义的变量，保持一致性：
+
+```css
+/* 颜色 */
+var(--bg)       /* 背景 #0f172a */
+var(--card)     /* 卡片 #111827 */
+var(--text)     /* 文字 #e5e7eb */
+var(--muted)    /* 次要文字 #9ca3af */
+var(--primary)  /* 主色 #22d3ee */
+var(--accent)   /* 强调色 #60a5fa */
+var(--success)  /* 成功/跌 #34d399 */
+var(--danger)   /* 危险/涨 #f87171 */
+var(--border)   /* 边框 #1f2937 */
+```
+
+## 设计模式
+
+### Glass-morphism 卡片
+
+```css
+.glass {
+  background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  backdrop-filter: blur(8px);
+}
+```
+
+### 12 列网格
+
+```css
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+.col-12 { grid-column: span 12; }
+.col-6 { grid-column: span 6; }
+```
+
+## 响应式断点
+
+```css
+@media (max-width: 1024px) { /* 平板 */ }
+@media (max-width: 768px)  { /* 小平板 */ }
+@media (max-width: 640px)  { /* 手机 */ }
+```
+
+## 命名规范
+
+- 类名：kebab-case（`icon-button`、`filter-bar`）
+- 状态类：`.active`、`.up`、`.down`、`.danger`
+- 工具类：`.muted`、`.text-right`、`.text-center`
+
+## 常用样式值
+
+| 属性 | 值 |
+|------|-----|
+| border-radius | 10px / 12px / 16px / 999px（圆形）|
+| height（按钮）| 44px / 36px / 32px / 28px |
+| gap | 4px / 8px / 12px / 16px |
+| transition | 150ms / 200ms ease |
+
+## 避免事项
+
+- ❌ 硬编码颜色值（使用 CSS 变量）
+- ❌ 使用 `!important`（除非覆盖第三方样式）
+- ❌ 内联样式用于可复用组件

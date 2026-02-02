@@ -1,0 +1,92 @@
+---
+description: 项目代码规范和最佳实践
+alwaysApply: true
+---
+
+# 代码规范
+
+## 技术栈
+
+- Next.js 14 + React 18
+- 使用 JSX（非 TypeScript）
+- framer-motion 处理动画
+- 客户端组件使用 `'use client'` 指令
+
+## React 组件规范
+
+```jsx
+// ✅ 使用函数组件
+function MyComponent({ prop1, prop2 }) {
+  return <div>{prop1}</div>;
+}
+
+// ✅ 导出默认组件
+export default function PageComponent() {
+  // ...
+}
+
+// ❌ 避免类组件
+class MyComponent extends React.Component {}
+```
+
+## Hooks 使用规范
+
+```jsx
+// ✅ 正确的依赖数组
+useEffect(() => {
+  // 副作用逻辑
+  return () => {
+    // 清理逻辑
+  };
+}, [dependency1, dependency2]);
+
+// ❌ 避免空依赖数组但使用了外部变量
+useEffect(() => {
+  console.log(someValue); // someValue 应该在依赖数组中
+}, []);
+```
+
+## 状态管理
+
+- 使用 `useState` 管理组件状态
+- 使用 `useRef` 存储不需要触发重渲染的值
+- 复杂状态使用 `Set` 或对象管理
+
+```jsx
+// ✅ 使用 Set 管理多选状态
+const [selected, setSelected] = useState(new Set());
+
+const toggle = (id) => {
+  setSelected(prev => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+};
+```
+
+## 本地存储
+
+- 使用 `localStorage` 持久化用户偏好
+- 在 `useEffect` 中读取，避免 SSR 问题
+- 状态变更时同步保存
+
+## 命名规范
+
+- 组件：PascalCase（`FeedbackModal`）
+- 函数/变量：camelCase（`toggleFavorite`）
+- 常量：camelCase 或 UPPER_SNAKE_CASE
+- CSS 类名：kebab-case（`icon-button`）
+
+## 错误处理
+
+```jsx
+// ✅ try-catch 包裹异步操作
+try {
+  const data = await fetchData();
+  setData(data);
+} catch (e) {
+  console.error('操作失败', e);
+  setError(e.message || '操作失败');
+}
+```
