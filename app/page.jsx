@@ -95,12 +95,212 @@ function StarIcon({ filled, ...props }) {
   );
 }
 
-function Stat({ label, value, delta }) {
+function EditIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function WalletIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M21 4H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M1 10h22" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="18" cy="15" r="2" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function Stat({ label, value, delta, small }) {
   const dir = delta > 0 ? 'up' : delta < 0 ? 'down' : '';
   return (
-    <div className="stat">
+    <div className={`stat ${small ? 'stat-small' : ''}`}>
       <span className="label">{label}</span>
       <span className={`value ${dir}`}>{value}</span>
+    </div>
+  );
+}
+
+// 持仓编辑弹窗
+function EditHoldingModal({ fund, holding, onSave, onClose }) {
+  const [shares, setShares] = useState(holding?.shares || '');
+  const [costPrice, setCostPrice] = useState(holding?.costPrice || '');
+
+  const handleSave = () => {
+    const sharesNum = parseFloat(shares) || 0;
+    const costPriceNum = parseFloat(costPrice) || 0;
+    onSave({
+      shares: sharesNum,
+      costPrice: costPriceNum
+    });
+  };
+
+  const handleClear = () => {
+    onSave({ shares: 0, costPrice: 0 });
+  };
+
+  return (
+    <motion.div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="编辑持仓"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="glass card modal holding-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <EditIcon width="20" height="20" />
+            <span>编辑持仓</span>
+          </div>
+          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
+            <CloseIcon width="20" height="20" />
+          </button>
+        </div>
+
+        <div className="holding-fund-info" style={{ marginBottom: 20, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 12 }}>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{fund.name}</div>
+          <div className="muted" style={{ fontSize: 13 }}>#{fund.code}</div>
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 16 }}>
+          <label htmlFor="shares" className="muted" style={{ display: 'block', marginBottom: 8, fontSize: '14px' }}>
+            持有份额
+          </label>
+          <input
+            id="shares"
+            type="number"
+            className="input"
+            placeholder="请输入持有份额"
+            value={shares}
+            onChange={(e) => setShares(e.target.value)}
+            min="0"
+            step="0.01"
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        <div className="form-group" style={{ marginBottom: 20 }}>
+          <label htmlFor="costPrice" className="muted" style={{ display: 'block', marginBottom: 8, fontSize: '14px' }}>
+            成本价（可选）
+          </label>
+          <input
+            id="costPrice"
+            type="number"
+            className="input"
+            placeholder="请输入成本单价"
+            value={costPrice}
+            onChange={(e) => setCostPrice(e.target.value)}
+            min="0"
+            step="0.0001"
+            style={{ width: '100%' }}
+          />
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+            填写成本价后可计算持仓盈亏
+          </div>
+        </div>
+
+        <div className="row" style={{ justifyContent: 'space-between', marginTop: 24, gap: 12 }}>
+          {(holding?.shares > 0) && (
+            <button 
+              className="button" 
+              onClick={handleClear}
+              style={{ background: 'transparent', border: '1px solid var(--danger)', color: 'var(--danger)', flex: 1 }}
+            >
+              清空持仓
+            </button>
+          )}
+          <button className="button" onClick={handleSave} style={{ flex: holding?.shares > 0 ? 1 : 'none', width: holding?.shares > 0 ? 'auto' : '100%' }}>
+            保存
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// 资产汇总组件
+function PortfolioSummary({ funds, holdings }) {
+  // 计算汇总数据
+  const summary = funds.reduce((acc, f) => {
+    const h = holdings[f.code];
+    if (!h || h.shares <= 0) return acc;
+    
+    const gsz = parseFloat(f.gsz) || 0;
+    const gszzl = typeof f.gszzl === 'number' ? f.gszzl : (parseFloat(f.gszzl) || 0);
+    const marketValue = h.shares * gsz;
+    const costValue = h.costPrice > 0 ? h.shares * h.costPrice : 0;
+    const profit = costValue > 0 ? marketValue - costValue : 0;
+    const yesterdayValue = gszzl !== 0 ? marketValue / (1 + gszzl / 100) : marketValue;
+    const dayProfit = marketValue - yesterdayValue;
+    
+    return {
+      totalMarketValue: acc.totalMarketValue + marketValue,
+      totalCostValue: acc.totalCostValue + costValue,
+      totalProfit: acc.totalProfit + profit,
+      totalDayProfit: acc.totalDayProfit + dayProfit,
+      holdingCount: acc.holdingCount + 1
+    };
+  }, { totalMarketValue: 0, totalCostValue: 0, totalProfit: 0, totalDayProfit: 0, holdingCount: 0 });
+
+  const profitRate = summary.totalCostValue > 0 
+    ? (summary.totalProfit / summary.totalCostValue * 100) 
+    : 0;
+
+  if (summary.holdingCount === 0) return null;
+
+  return (
+    <div className="col-12 glass card portfolio-summary">
+      <div className="title" style={{ marginBottom: 16 }}>
+        <WalletIcon width="20" height="20" />
+        <span>持仓汇总</span>
+        <span className="muted">共 {summary.holdingCount} 只持仓基金</span>
+      </div>
+      
+      <div className="summary-grid">
+        <div className="summary-item main">
+          <span className="label">总市值</span>
+          <span className="value">{summary.totalMarketValue.toFixed(2)}</span>
+        </div>
+        <div className="summary-item">
+          <span className="label">今日盈亏</span>
+          <span className={`value ${summary.totalDayProfit > 0 ? 'up' : summary.totalDayProfit < 0 ? 'down' : ''}`}>
+            {summary.totalDayProfit > 0 ? '+' : ''}{summary.totalDayProfit.toFixed(2)}
+          </span>
+        </div>
+        {summary.totalCostValue > 0 && (
+          <>
+            <div className="summary-item">
+              <span className="label">持仓成本</span>
+              <span className="value">{summary.totalCostValue.toFixed(2)}</span>
+            </div>
+            <div className="summary-item">
+              <span className="label">累计盈亏</span>
+              <span className={`value ${summary.totalProfit > 0 ? 'up' : summary.totalProfit < 0 ? 'down' : ''}`}>
+                {summary.totalProfit > 0 ? '+' : ''}{summary.totalProfit.toFixed(2)}
+              </span>
+            </div>
+            <div className="summary-item">
+              <span className="label">收益率</span>
+              <span className={`value ${profitRate > 0 ? 'up' : profitRate < 0 ? 'down' : ''}`}>
+                {profitRate > 0 ? '+' : ''}{profitRate.toFixed(2)}%
+              </span>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -230,6 +430,10 @@ export default function HomePage() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [feedbackNonce, setFeedbackNonce] = useState(0);
 
+  // 持仓信息状态 { [code]: { shares: number, costPrice: number } }
+  const [holdings, setHoldings] = useState({});
+  const [editingFund, setEditingFund] = useState(null);
+
   const toggleFavorite = (code) => {
     setFavorites(prev => {
       const next = new Set(prev);
@@ -298,6 +502,11 @@ export default function HomePage() {
       const savedViewMode = localStorage.getItem('viewMode');
       if (savedViewMode === 'card' || savedViewMode === 'list') {
         setViewMode(savedViewMode);
+      }
+      // 加载持仓信息
+      const savedHoldings = JSON.parse(localStorage.getItem('holdings') || '{}');
+      if (savedHoldings && typeof savedHoldings === 'object') {
+        setHoldings(savedHoldings);
       }
     } catch {}
   }, []);
@@ -527,6 +736,57 @@ export default function HomePage() {
       if (nextSet.size === 0) setCurrentTab('all');
       return nextSet;
     });
+
+    // 同步删除持仓信息
+    setHoldings(prev => {
+      if (!prev[removeCode]) return prev;
+      const next = { ...prev };
+      delete next[removeCode];
+      localStorage.setItem('holdings', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // 保存持仓信息
+  const saveHolding = (code, data) => {
+    setHoldings(prev => {
+      let next;
+      if (data.shares <= 0 && data.costPrice <= 0) {
+        // 清空持仓
+        next = { ...prev };
+        delete next[code];
+      } else {
+        next = { ...prev, [code]: data };
+      }
+      localStorage.setItem('holdings', JSON.stringify(next));
+      return next;
+    });
+    setEditingFund(null);
+  };
+
+  // 计算单只基金的持仓数据
+  const calcHoldingData = (fund) => {
+    const h = holdings[fund.code];
+    if (!h || h.shares <= 0) return null;
+    
+    const gsz = parseFloat(fund.gsz) || 0;
+    const gszzl = typeof fund.gszzl === 'number' ? fund.gszzl : (parseFloat(fund.gszzl) || 0);
+    const marketValue = h.shares * gsz;
+    const costValue = h.costPrice > 0 ? h.shares * h.costPrice : 0;
+    const profit = costValue > 0 ? marketValue - costValue : 0;
+    const profitRate = costValue > 0 ? (profit / costValue * 100) : 0;
+    const yesterdayValue = gszzl !== 0 ? marketValue / (1 + gszzl / 100) : marketValue;
+    const dayProfit = marketValue - yesterdayValue;
+    
+    return {
+      shares: h.shares,
+      costPrice: h.costPrice,
+      marketValue,
+      costValue,
+      profit,
+      profitRate,
+      dayProfit
+    };
   };
 
   const manualRefresh = async () => {
@@ -612,6 +872,9 @@ export default function HomePage() {
           {error && <div className="muted" style={{ marginTop: 8, color: 'var(--danger)' }}>{error}</div>}
         </div>
 
+        {/* 持仓汇总 */}
+        <PortfolioSummary funds={funds} holdings={holdings} />
+
         <div className="col-12">
           {funds.length > 0 && (
             <div className="filter-bar" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -663,6 +926,8 @@ export default function HomePage() {
                     {[
                       { id: 'default', label: '默认' },
                       { id: 'yield', label: '涨跌幅' },
+                      { id: 'marketValue', label: '市值' },
+                      { id: 'profit', label: '盈亏' },
                       { id: 'name', label: '名称' },
                       { id: 'code', label: '代码' }
                     ].map((s) => (
@@ -703,6 +968,20 @@ export default function HomePage() {
                           const valB = typeof b.estGszzl === 'number' ? b.estGszzl : (Number(b.gszzl) || 0);
                           return valB - valA;
                         }
+                        if (sortBy === 'marketValue') {
+                          const hA = calcHoldingData(a);
+                          const hB = calcHoldingData(b);
+                          const mvA = hA?.marketValue || 0;
+                          const mvB = hB?.marketValue || 0;
+                          return mvB - mvA;
+                        }
+                        if (sortBy === 'profit') {
+                          const hA = calcHoldingData(a);
+                          const hB = calcHoldingData(b);
+                          const pA = hA?.profit || 0;
+                          const pB = hB?.profit || 0;
+                          return pB - pA;
+                        }
                         if (sortBy === 'name') return a.name.localeCompare(b.name, 'zh-CN');
                         if (sortBy === 'code') return a.code.localeCompare(b.code);
                         return 0; // default order is the order in the array
@@ -735,6 +1014,11 @@ export default function HomePage() {
                                 <span className="name-text">{f.name}</span>
                                 <span className="muted code-text">#{f.code}</span>
                               </div>
+                              {holdings[f.code]?.shares > 0 && (
+                                <span className="holding-badge" title={`持有 ${holdings[f.code].shares.toFixed(2)} 份`}>
+                                  <WalletIcon width="12" height="12" />
+                                </span>
+                              )}
                             </div>
                             <div className="table-cell text-right value-cell">
                               <span style={{ fontWeight: 700 }}>{f.estPricedCoverage > 0.05 ? f.estGsz.toFixed(4) : (f.gsz ?? '—')}</span>
@@ -748,6 +1032,14 @@ export default function HomePage() {
                               <span className="muted" style={{ fontSize: '12px' }}>{f.gztime || f.time || '-'}</span>
                             </div>
                             <div className="table-cell text-center action-cell">
+                              <button
+                                className="icon-button"
+                                onClick={() => setEditingFund(f)}
+                                title="编辑持仓"
+                                style={{ width: '28px', height: '28px' }}
+                              >
+                                <EditIcon width="14" height="14" />
+                              </button>
                               <button
                                 className="icon-button danger"
                                 onClick={() => removeFund(f.code)}
@@ -784,6 +1076,13 @@ export default function HomePage() {
                                 <strong>{f.gztime || f.time || '-'}</strong>
                               </div>
                               <button
+                                className="icon-button"
+                                onClick={() => setEditingFund(f)}
+                                title="编辑持仓"
+                              >
+                                <EditIcon width="18" height="18" />
+                              </button>
+                              <button
                                 className="icon-button danger"
                                 onClick={() => removeFund(f.code)}
                                 title="删除"
@@ -802,6 +1101,51 @@ export default function HomePage() {
                               delta={f.estPricedCoverage > 0.05 ? f.estGszzl : (Number(f.gszzl) || 0)}
                             />
                           </div>
+
+                          {/* 持仓信息 */}
+                          {(() => {
+                            const holdingData = calcHoldingData(f);
+                            if (!holdingData) return null;
+                            return (
+                              <div className="holding-section">
+                                <div className="holding-header">
+                                  <WalletIcon width="14" height="14" />
+                                  <span>我的持仓</span>
+                                  <span className="muted" style={{ marginLeft: 'auto', fontSize: 11 }}>
+                                    {holdingData.shares.toFixed(2)} 份
+                                  </span>
+                                </div>
+                                <div className="holding-stats">
+                                  <div className="holding-stat">
+                                    <span className="label">市值</span>
+                                    <span className="value">{holdingData.marketValue.toFixed(2)}</span>
+                                  </div>
+                                  <div className="holding-stat">
+                                    <span className="label">今日盈亏</span>
+                                    <span className={`value ${holdingData.dayProfit > 0 ? 'up' : holdingData.dayProfit < 0 ? 'down' : ''}`}>
+                                      {holdingData.dayProfit > 0 ? '+' : ''}{holdingData.dayProfit.toFixed(2)}
+                                    </span>
+                                  </div>
+                                  {holdingData.costValue > 0 && (
+                                    <>
+                                      <div className="holding-stat">
+                                        <span className="label">累计盈亏</span>
+                                        <span className={`value ${holdingData.profit > 0 ? 'up' : holdingData.profit < 0 ? 'down' : ''}`}>
+                                          {holdingData.profit > 0 ? '+' : ''}{holdingData.profit.toFixed(2)}
+                                        </span>
+                                      </div>
+                                      <div className="holding-stat">
+                                        <span className="label">收益率</span>
+                                        <span className={`value ${holdingData.profitRate > 0 ? 'up' : holdingData.profitRate < 0 ? 'down' : ''}`}>
+                                          {holdingData.profitRate > 0 ? '+' : ''}{holdingData.profitRate.toFixed(2)}%
+                                        </span>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {f.estPricedCoverage > 0.05 && (
                             <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: -8, marginBottom: 10, textAlign: 'right' }}>
                               基于 {Math.round(f.estPricedCoverage * 100)}% 持仓估算
@@ -898,6 +1242,18 @@ export default function HomePage() {
           <FeedbackModal
             key={feedbackNonce}
             onClose={() => setFeedbackOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingFund && (
+          <EditHoldingModal
+            key={editingFund.code}
+            fund={editingFund}
+            holding={holdings[editingFund.code]}
+            onSave={(data) => saveHolding(editingFund.code, data)}
+            onClose={() => setEditingFund(null)}
           />
         )}
       </AnimatePresence>
