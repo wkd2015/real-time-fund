@@ -361,27 +361,28 @@ function PortfolioSummary({ funds, holdings }) {
   );
 }
 
-// 基金名称搜索函数
-const searchFundByName = (name) => {
+// 基金名称搜索函数 - 返回多个候选结果
+const searchFundByName = (name, maxResults = 5) => {
   return new Promise((resolve) => {
     const callbackName = `fundSearch_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const script = document.createElement('script');
-    const cleanName = name.replace(/[股票|混合|债券|指数|LOF|ETF|联接|A|C]$/g, '').trim();
+    // 清理名称：移除常见后缀以提高搜索命中率
+    const cleanName = name.replace(/[股票混合债券LOF]$/g, '').replace(/联接[CA]?$/g, '').replace(/ETF$/g, '').trim();
     
     window[callbackName] = (data) => {
       delete window[callbackName];
       if (document.body.contains(script)) document.body.removeChild(script);
       
       if (data && data.Datas && data.Datas.length > 0) {
-        // 返回第一个匹配结果
-        const fund = data.Datas[0];
-        resolve({
+        // 返回前 maxResults 个匹配结果
+        const candidates = data.Datas.slice(0, maxResults).map(fund => ({
           code: fund.CODE,
           name: fund.NAME,
           type: fund.FundBaseInfo?.FTYPE || ''
-        });
+        }));
+        resolve(candidates);
       } else {
-        resolve(null);
+        resolve([]);
       }
     };
     
@@ -389,7 +390,7 @@ const searchFundByName = (name) => {
     script.onerror = () => {
       delete window[callbackName];
       if (document.body.contains(script)) document.body.removeChild(script);
-      resolve(null);
+      resolve([]);
     };
     
     document.body.appendChild(script);
@@ -399,7 +400,7 @@ const searchFundByName = (name) => {
       if (window[callbackName]) {
         delete window[callbackName];
         if (document.body.contains(script)) document.body.removeChild(script);
-        resolve(null);
+        resolve([]);
       }
     }, 5000);
   });
@@ -410,57 +411,84 @@ const parseAntFortunText = (text) => {
   const results = [];
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   
-  // 蚂蚁财富的格式通常是：
-  // 基金名称
-  // 持有金额 xxx.xx
-  // 持有收益 +xxx.xx 或 -xxx.xx
-  
-  let currentFund = null;
+  // OCR 识别的蚂蚁财富格式：
+  // 基金名称（带空格）+ 金额 + 收益 在同一行
+  // 例如：国泰 半导体 设备 ETF 联 133,148.21 -0,606.55
+  // 注意：基金名称后缀可能在下一行，如 "主题 ETF 联接 C"
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // 检测基金名称（包含"基金"、"股票"、"混合"、"债券"、"指数"等关键词）
-    if (/[基金股票混合债券指数ETF]/.test(line) && !/持有|收益|金额|昨日|累计/.test(line)) {
-      if (currentFund && currentFund.name) {
-        results.push(currentFund);
+    // 匹配包含金额的行：允许金额前有任意非数字字符（引号、特殊符号等）
+    // 格式：基金名称 [任意非数字字符]金额 收益
+    const amountPattern = /^(.+?)\s+\D?([\d,]+\.\d{2})\s+([+-]?[\d,]+\.\d{2})$/;
+    const match = line.match(amountPattern);
+    
+    if (match) {
+      let name = match[1];
+      const amount = parseFloat(match[2].replace(/,/g, '')) || 0;
+      const profit = parseFloat(match[3].replace(/,/g, '')) || 0;
+      
+      // 金额太小的跳过（可能是误识别）
+      if (amount < 100) continue;
+      
+      // 清理基金名称：移除空格
+      name = name.replace(/\s+/g, '');
+      
+      // 移除可能的干扰字符（各种引号、括号等）
+      name = name.replace(/^[《\[【"'""''「」]/, '').replace(/[》\]】"'""''」』]$/, '');
+      
+      // 基金名称关键词检查（更宽松）
+      const fundKeywords = /[基金股票混合债券指数ETF主题联接证光伏创业科创半导体化工电池保险医药新药互联网科技恒生沪深港天弘华夏易方达南方国泰汇添富永赢方正富邦有色金属创业板]/;
+      if (!fundKeywords.test(name)) continue;
+      
+      // 排除明显不是基金名的行（如标题、说明等）
+      if (/^[名称金额收益排序]/.test(name)) continue;
+      if (name.length < 4) continue;
+      
+      // 方案2：尝试从下一行合并基金名称后缀
+      // 检查下一行是否以 ETF/联接/主题/指数/C/A 等开头
+      if (i + 1 < lines.length) {
+        const nextLine = lines[i + 1].replace(/\s+/g, '');
+        // 匹配常见的基金后缀格式：ETF联接C、联接A、主题ETF、指数C 等
+        const suffixPattern = /^(ETF|联接|主题|指数|[CA])[\(（]?(QDII|LOF)?[\)）]?[CA]?$/i;
+        const suffixMatch = nextLine.match(suffixPattern);
+        if (suffixMatch) {
+          // 提取后缀（去除 0.00 等数字部分）
+          const suffix = nextLine.replace(/[\d.%+-]+/g, '').trim();
+          if (suffix && suffix.length <= 15) {
+            name = name + suffix;
+            console.log(`合并后缀: ${match[1]} + ${suffix} = ${name}`);
+          }
+        } else {
+          // 更宽松的匹配：如果下一行包含 ETF/联接/C/A 但不是完整的基金行
+          const looseMatch = nextLine.match(/^([主题ETF联接指数CA（）\(QDII\)]+)/i);
+          if (looseMatch && looseMatch[1].length <= 12 && !/^\d/.test(nextLine)) {
+            const suffix = looseMatch[1].replace(/[\d.%+-]+/g, '');
+            if (suffix) {
+              name = name + suffix;
+              console.log(`宽松合并后缀: ${match[1]} + ${suffix} = ${name}`);
+            }
+          }
+        }
       }
-      currentFund = { name: line, amount: 0, profit: 0 };
-      continue;
-    }
-    
-    // 检测金额（持有金额、持有市值等）
-    const amountMatch = line.match(/(?:持有[金额市值]?|金额)[^\d]*?([\d,]+\.?\d*)/);
-    if (amountMatch && currentFund) {
-      currentFund.amount = parseFloat(amountMatch[1].replace(/,/g, '')) || 0;
-      continue;
-    }
-    
-    // 检测收益（持有收益）
-    const profitMatch = line.match(/(?:持有收益|收益)[^\d]*?([+-]?[\d,]+\.?\d*)/);
-    if (profitMatch && currentFund) {
-      currentFund.profit = parseFloat(profitMatch[1].replace(/,/g, '')) || 0;
-      continue;
-    }
-    
-    // 单独的数字行可能是金额
-    const pureNumberMatch = line.match(/^([+-]?[\d,]+\.?\d*)$/);
-    if (pureNumberMatch && currentFund) {
-      const num = parseFloat(pureNumberMatch[1].replace(/,/g, '')) || 0;
-      if (currentFund.amount === 0 && num > 100) {
-        currentFund.amount = num;
-      } else if (currentFund.profit === 0 && Math.abs(num) < currentFund.amount) {
-        currentFund.profit = num;
-      }
+      
+      results.push({ name, amount, profit });
     }
   }
   
-  // 添加最后一个基金
-  if (currentFund && currentFund.name) {
-    results.push(currentFund);
+  // 去重：根据基金名称去重，保留金额较大的
+  const uniqueMap = new Map();
+  for (const fund of results) {
+    const existing = uniqueMap.get(fund.name);
+    if (!existing || fund.amount > existing.amount) {
+      uniqueMap.set(fund.name, fund);
+    }
   }
   
-  return results.filter(f => f.name && f.amount > 0);
+  const uniqueResults = Array.from(uniqueMap.values());
+  console.log('=== 最终解析结果（去重后） ===', uniqueResults);
+  return uniqueResults;
 };
 
 // 截图导入弹窗
@@ -504,8 +532,19 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
       
       setOcrText(result.data.text);
       
+      // 调试日志：输出 OCR 原始识别结果
+      console.log('=== OCR 识别原始文本 ===');
+      console.log(result.data.text);
+      console.log('=== 文本行分割 ===');
+      const lines = result.data.text.split('\n').map(l => l.trim()).filter(l => l);
+      lines.forEach((line, i) => console.log(`[${i}] ${line}`));
+      
       // 解析识别结果
       const parsed = parseAntFortunText(result.data.text);
+      
+      // 调试日志：输出解析结果
+      console.log('=== 解析结果 ===');
+      console.log(JSON.stringify(parsed, null, 2));
       
       if (parsed.length === 0) {
         setError('未能识别到基金信息，请确保截图清晰且包含基金持仓');
@@ -513,17 +552,19 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
         return;
       }
       
-      // 搜索基金代码
+      // 搜索基金代码（返回多个候选）
       setSearchingCodes(true);
       const fundsWithCodes = [];
       
       for (const fund of parsed) {
-        const searchResult = await searchFundByName(fund.name);
+        const candidates = await searchFundByName(fund.name, 5);
+        const firstCandidate = candidates[0] || null;
         fundsWithCodes.push({
           ...fund,
-          code: searchResult?.code || '',
-          matchedName: searchResult?.name || fund.name,
-          isExisting: searchResult?.code ? existingFunds.some(f => f.code === searchResult.code) : false
+          code: firstCandidate?.code || '',
+          matchedName: firstCandidate?.name || fund.name,
+          candidates: candidates, // 存储所有候选
+          isExisting: firstCandidate?.code ? existingFunds.some(f => f.code === firstCandidate.code) : false
         });
       }
       
@@ -586,14 +627,25 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
     onImport(toImport);
   };
 
-  const updateFundCode = (index, newCode) => {
+  const updateFundCode = (index, newCode, switchToManual = false) => {
     setParsedFunds(prev => {
       const next = [...prev];
-      next[index] = {
-        ...next[index],
-        code: newCode,
-        isExisting: newCode ? existingFunds.some(f => f.code === newCode) : false
-      };
+      if (switchToManual) {
+        // 切换到手动输入模式
+        next[index] = {
+          ...next[index],
+          code: '',
+          candidates: [], // 清空候选，显示手动输入框
+          manualInput: true,
+          isExisting: false
+        };
+      } else {
+        next[index] = {
+          ...next[index],
+          code: newCode,
+          isExisting: newCode ? existingFunds.some(f => f.code === newCode) : false
+        };
+      }
       return next;
     });
   };
@@ -717,16 +769,47 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
                   </div>
                   <div className="import-item-info">
                     <div className="import-item-name">{fund.name}</div>
-                    <div className="import-item-code">
-                      {fund.code ? (
-                        <span>#{fund.code}</span>
-                      ) : (
+                    <div className="import-item-code" onClick={(e) => e.stopPropagation()}>
+                      {fund.candidates && fund.candidates.length > 0 ? (
+                        // 有候选：显示下拉选择框
+                        <select
+                          className="input"
+                          value={fund.code}
+                          style={{ height: 28, fontSize: 12, padding: '0 4px', minWidth: 140, maxWidth: 200 }}
+                          onChange={(e) => {
+                            const newCode = e.target.value;
+                            if (newCode === '__manual__') {
+                              // 切换到手动输入模式
+                              updateFundCode(index, '', true);
+                            } else {
+                              updateFundCode(index, newCode);
+                            }
+                          }}
+                        >
+                          {fund.candidates.map((c, ci) => (
+                            <option key={ci} value={c.code}>
+                              {c.code} - {c.name.length > 12 ? c.name.slice(0, 12) + '...' : c.name}
+                            </option>
+                          ))}
+                          <option value="__manual__">手动输入代码...</option>
+                        </select>
+                      ) : fund.manualInput !== undefined ? (
+                        // 手动输入模式
                         <input
                           type="text"
                           className="input"
-                          placeholder="输入基金代码"
-                          style={{ height: 28, fontSize: 12, padding: '0 8px', width: 100 }}
-                          onClick={(e) => e.stopPropagation()}
+                          placeholder="输入6位基金代码"
+                          defaultValue={fund.code}
+                          style={{ height: 28, fontSize: 12, padding: '0 8px', width: 110 }}
+                          onChange={(e) => updateFundCode(index, e.target.value.trim())}
+                        />
+                      ) : (
+                        // 无候选：直接显示手动输入
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="输入6位基金代码"
+                          style={{ height: 28, fontSize: 12, padding: '0 8px', width: 110 }}
                           onChange={(e) => updateFundCode(index, e.target.value.trim())}
                         />
                       )}
