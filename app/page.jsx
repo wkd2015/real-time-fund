@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useForm, ValidationError } from '@formspree/react';
 import Announcement from "./components/Announcement";
+import OperationManager from "./components/OperationManager";
 
 function PlusIcon(props) {
   return (
@@ -20,6 +20,15 @@ function TrashIcon(props) {
       <path d="M8 6l1-2h6l1 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M6 6l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ClipboardIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
@@ -854,98 +863,6 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
   );
 }
 
-function FeedbackModal({ onClose }) {
-  const [state, handleSubmit] = useForm("xdadgvjd");
-
-  const onSubmit = (e) => {
-    const form = e?.target;
-    const nicknameInput = form?.elements?.namedItem?.('nickname');
-    if (nicknameInput && typeof nicknameInput.value === 'string') {
-      const v = nicknameInput.value.trim();
-      if (!v) nicknameInput.value = '匿名';
-    }
-    return handleSubmit(e);
-  };
-
-  return (
-    <motion.div
-      className="modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="意见反馈"
-      onClick={onClose}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="glass card modal feedback-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="title" style={{ marginBottom: 20, justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <SettingsIcon width="20" height="20" />
-            <span>意见反馈</span>
-          </div>
-          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
-            <CloseIcon width="20" height="20" />
-          </button>
-        </div>
-
-        {state.succeeded ? (
-          <div className="success-message" style={{ textAlign: 'center', padding: '20px 0' }}>
-            <div style={{ fontSize: '48px', marginBottom: 16 }}>🎉</div>
-            <h3 style={{ marginBottom: 8 }}>感谢您的反馈！</h3>
-            <p className="muted">我们已收到您的建议，会尽快查看。</p>
-            <button className="button" onClick={onClose} style={{ marginTop: 24, width: '100%' }}>
-              关闭
-            </button>
-          </div>
-        ) : (
-          <form onSubmit={onSubmit} className="feedback-form">
-            <div className="form-group" style={{ marginBottom: 16 }}>
-              <label htmlFor="nickname" className="muted" style={{ display: 'block', marginBottom: 8, fontSize: '14px' }}>
-                您的昵称（可选）
-              </label>
-              <input
-                id="nickname"
-                type="text"
-                name="nickname"
-                className="input"
-                placeholder="匿名"
-                style={{ width: '100%' }}
-              />
-              <ValidationError prefix="Nickname" field="nickname" errors={state.errors} className="error-text" />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: 20 }}>
-              <label htmlFor="message" className="muted" style={{ display: 'block', marginBottom: 8, fontSize: '14px' }}>
-                反馈内容
-              </label>
-              <textarea
-                id="message"
-                name="message"
-                className="input"
-                required
-                placeholder="请描述您遇到的问题或建议..."
-                style={{ width: '100%', minHeight: '120px', padding: '12px', resize: 'vertical' }}
-              />
-              <ValidationError prefix="Message" field="message" errors={state.errors} className="error-text" />
-            </div>
-
-            <button className="button" type="submit" disabled={state.submitting} style={{ width: '100%' }}>
-              {state.submitting ? '发送中...' : '提交反馈'}
-            </button>
-          </form>
-        )}
-      </motion.div>
-    </motion.div>
-  );
-}
-
 export default function HomePage() {
   const [funds, setFunds] = useState([]);
   const [code, setCode] = useState('');
@@ -958,6 +875,9 @@ export default function HomePage() {
   const [refreshMs, setRefreshMs] = useState(30000);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tempSeconds, setTempSeconds] = useState(30);
+  
+  // 操作记录弹窗状态（独立模块）
+  const [operationManagerOpen, setOperationManagerOpen] = useState(false);
 
   // 全局刷新状态
   const [refreshing, setRefreshing] = useState(false);
@@ -976,9 +896,6 @@ export default function HomePage() {
   // 视图模式
   const [viewMode, setViewMode] = useState('card'); // card, list
 
-  // 反馈弹窗状态
-  const [feedbackOpen, setFeedbackOpen] = useState(false);
-  const [feedbackNonce, setFeedbackNonce] = useState(0);
 
   // 持仓信息状态 { [code]: { shares: number, costPrice: number } }
   const [holdings, setHoldings] = useState({});
@@ -1533,6 +1450,14 @@ export default function HomePage() {
           </button>
           <button
             className="icon-button"
+            aria-label="操作记录"
+            onClick={() => setOperationManagerOpen(true)}
+            title="操作记录"
+          >
+            <ClipboardIcon width="18" height="18" />
+          </button>
+          <button
+            className="icon-button"
             aria-label="打开设置"
             onClick={() => setSettingsOpen(true)}
             title="设置"
@@ -1972,31 +1897,7 @@ export default function HomePage() {
         <p>数据源：实时估值与重仓直连东方财富，仅供个人学习及参考使用。数据可能存在延迟，不作为任何投资建议
         </p>
         <p>注：估算数据与真实结算数据会有1%左右误差</p>
-        <div style={{ marginTop: 12, opacity: 0.8 }}>
-          <p>
-            遇到任何问题或需求建议可
-            <button
-              className="link-button"
-              onClick={() => {
-                setFeedbackNonce((n) => n + 1);
-                setFeedbackOpen(true);
-              }}
-              style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', padding: '0 4px', textDecoration: 'underline', fontSize: 'inherit', fontWeight: 600 }}
-            >
-              点此提交反馈
-            </button>
-          </p>
-        </div>
       </div>
-
-      <AnimatePresence>
-        {feedbackOpen && (
-          <FeedbackModal
-            key={feedbackNonce}
-            onClose={() => setFeedbackOpen(false)}
-          />
-        )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {editingFund && (
@@ -2102,6 +2003,14 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
+      {/* 操作记录管理（独立模块） */}
+      <OperationManager
+        isOpen={operationManagerOpen}
+        onClose={() => setOperationManagerOpen(false)}
+        fundList={funds}
+        holdings={holdings}
+      />
     </div>
   );
 }
