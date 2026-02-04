@@ -244,7 +244,7 @@ function OperationForm({ operation, onSave, onCancel, fundList = [] }) {
 }
 
 // 主组件
-export default function OperationManager({ isOpen, onClose, fundList = [], holdings = {} }) {
+export default function OperationManager({ isOpen, onClose, fundList = [], holdings = {}, onUpdateHolding }) {
   const [operations, setOperations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [editingOp, setEditingOp] = useState(null); // null: 关闭, {}: 新增, {id: ...}: 编辑
@@ -272,11 +272,42 @@ export default function OperationManager({ isOpen, onClose, fundList = [], holdi
   // 保存操作
   const handleSave = async (data) => {
     try {
-      if (editingOp?.id) {
+      const isEdit = !!editingOp?.id;
+      const oldData = isEdit ? editingOp : null;
+      
+      if (isEdit) {
         await updateOperation(editingOp.id, data);
       } else {
         await addOperation(data);
       }
+      
+      // 同步更新持仓份额
+      if (onUpdateHolding && data.fundCode && data.shares > 0) {
+        const currentShares = holdings[data.fundCode]?.shares || 0;
+        let newShares = currentShares;
+        
+        if (isEdit && oldData) {
+          // 编辑模式：先撤销旧操作的影响，再应用新操作
+          if (oldData.type === 'buy' || oldData.type === 'convert_in') {
+            newShares -= oldData.shares || 0;
+          } else if (oldData.type === 'sell' || oldData.type === 'convert_out') {
+            newShares += oldData.shares || 0;
+          }
+        }
+        
+        // 应用新操作
+        if (data.type === 'buy' || data.type === 'convert_in') {
+          newShares += data.shares;
+        } else if (data.type === 'sell' || data.type === 'convert_out') {
+          newShares -= data.shares;
+        }
+        
+        // 确保份额不为负
+        newShares = Math.max(0, newShares);
+        
+        onUpdateHolding(data.fundCode, newShares);
+      }
+      
       setEditingOp(null);
       loadOperations();
     } catch (e) {

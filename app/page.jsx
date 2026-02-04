@@ -2010,6 +2010,20 @@ export default function HomePage() {
         onClose={() => setOperationManagerOpen(false)}
         fundList={funds}
         holdings={holdings}
+        onUpdateHolding={(code, newShares) => {
+          setHoldings(prev => {
+            const current = prev[code] || {};
+            const next = {
+              ...prev,
+              [code]: {
+                ...current,
+                shares: newShares
+              }
+            };
+            localStorage.setItem('holdings', JSON.stringify(next));
+            return next;
+          });
+        }}
       />
     </div>
   );
