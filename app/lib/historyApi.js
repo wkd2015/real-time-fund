@@ -320,3 +320,41 @@ export const getBatchFundHistory = async (fundCodes, days = 90) => {
   
   return results;
 };
+
+/**
+ * 获取基金指定日期的确认净值
+ * @param {string} fundCode - 基金代码
+ * @param {string} date - 日期，格式 YYYY-MM-DD
+ * @returns {Promise<{price: number, date: string} | null>} 净值信息，如果没有则返回 null
+ */
+export const getFundPriceByDate = async (fundCode, targetDate) => {
+  try {
+    // 获取最近30天的历史数据
+    const history = await getFundHistory(fundCode, 30);
+    
+    if (!history || history.length === 0) {
+      return null;
+    }
+    
+    // 精确匹配日期
+    const exact = history.find(h => h.date === targetDate);
+    if (exact) {
+      return { price: exact.price, date: exact.date };
+    }
+    
+    // 如果没有精确匹配，找最接近的（且不晚于目标日期的）
+    const targetTime = new Date(targetDate).getTime();
+    const validDates = history
+      .filter(h => new Date(h.date).getTime() <= targetTime)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    if (validDates.length > 0) {
+      return { price: validDates[0].price, date: validDates[0].date };
+    }
+    
+    return null;
+  } catch (e) {
+    console.error('获取指定日期净值失败', e);
+    return null;
+  }
+};

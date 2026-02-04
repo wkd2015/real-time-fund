@@ -16,6 +16,7 @@ import {
   importOperations
 } from '../lib/operationStore';
 import { downloadExport } from '../lib/exportAnalysis';
+import { getFundPriceByDate } from '../lib/historyApi';
 
 // 图标组件
 function CloseIcon(props) {
@@ -83,6 +84,48 @@ function FileTextIcon(props) {
       <line x1="16" y1="17" x2="8" y2="17" />
     </svg>
   );
+}
+
+function CheckIcon(props) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function RefreshIcon(props) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M23 4v6h-6" />
+      <path d="M1 20v-6h6" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  );
+}
+
+function AlertIcon(props) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" />
+    </svg>
+  );
+}
+
+// 判断操作是否待确认（有金额但没有份额）
+function isPendingConfirm(op) {
+  return op.amount > 0 && (!op.shares || op.shares <= 0) && (op.type === 'buy' || op.type === 'convert_in');
+}
+
+// 判断日期是否可以获取确认净值（至少是昨天或更早）
+function canConfirm(dateStr) {
+  const opDate = new Date(dateStr);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  opDate.setHours(0, 0, 0, 0);
+  return opDate < today;
 }
 
 // 操作编辑表单
@@ -249,6 +292,8 @@ export default function OperationManager({ isOpen, onClose, fundList = [], holdi
   const [loading, setLoading] = useState(true);
   const [editingOp, setEditingOp] = useState(null); // null: 关闭, {}: 新增, {id: ...}: 编辑
   const [exporting, setExporting] = useState(false);
+  const [confirming, setConfirming] = useState({}); // { [id]: true } 正在确认中的记录
+  const [autoConfirming, setAutoConfirming] = useState(false);
   const importFileRef = useRef(null);
 
   // 加载操作记录
@@ -263,10 +308,106 @@ export default function OperationManager({ isOpen, onClose, fundList = [], holdi
     try {
       const ops = await getAllOperations();
       setOperations(ops);
+      
+      // 自动检查并尝试确认待确认的记录
+      autoConfirmPending(ops);
     } catch (e) {
       console.error('加载操作记录失败', e);
     }
     setLoading(false);
+  };
+
+  // 自动确认待确认的记录
+  const autoConfirmPending = async (ops) => {
+    const pendingOps = ops.filter(op => isPendingConfirm(op) && canConfirm(op.date));
+    if (pendingOps.length === 0) return;
+    
+    setAutoConfirming(true);
+    let confirmedCount = 0;
+    
+    for (const op of pendingOps) {
+      try {
+        const result = await confirmOperation(op, false);
+        if (result) confirmedCount++;
+      } catch (e) {
+        console.error(`自动确认 ${op.fundCode} 失败`, e);
+      }
+      // 间隔 300ms 避免请求过快
+      await new Promise(r => setTimeout(r, 300));
+    }
+    
+    if (confirmedCount > 0) {
+      // 重新加载列表
+      const newOps = await getAllOperations();
+      setOperations(newOps);
+    }
+    
+    setAutoConfirming(false);
+  };
+
+  // 确认单条记录
+  const confirmOperation = async (op, showAlert = true) => {
+    if (!isPendingConfirm(op)) {
+      if (showAlert) alert('该记录不需要确认');
+      return false;
+    }
+    
+    if (!canConfirm(op.date)) {
+      if (showAlert) alert('净值尚未公布，请等待确认（通常 T+1 公布）');
+      return false;
+    }
+    
+    setConfirming(prev => ({ ...prev, [op.id]: true }));
+    
+    try {
+      // 获取该日期的确认净值
+      const priceData = await getFundPriceByDate(op.fundCode, op.date);
+      
+      if (!priceData || priceData.price <= 0) {
+        if (showAlert) alert(`未能获取 ${op.date} 的净值数据`);
+        setConfirming(prev => ({ ...prev, [op.id]: false }));
+        return false;
+      }
+      
+      // 计算份额 = 金额 / 净值
+      const shares = op.amount / priceData.price;
+      
+      // 更新记录
+      const updatedData = {
+        ...op,
+        shares: parseFloat(shares.toFixed(2)),
+        price: priceData.price,
+        confirmedDate: priceData.date // 记录实际使用的净值日期
+      };
+      
+      await updateOperation(op.id, updatedData);
+      
+      // 同步更新持仓份额
+      if (onUpdateHolding && op.fundCode) {
+        const currentShares = holdings[op.fundCode]?.shares || 0;
+        let newShares = currentShares;
+        
+        if (op.type === 'buy' || op.type === 'convert_in') {
+          newShares += updatedData.shares;
+        }
+        
+        onUpdateHolding(op.fundCode, Math.max(0, newShares));
+      }
+      
+      setConfirming(prev => ({ ...prev, [op.id]: false }));
+      
+      if (showAlert) {
+        alert(`已确认：${shares.toFixed(2)} 份 @ ${priceData.price.toFixed(4)}`);
+        loadOperations();
+      }
+      
+      return true;
+    } catch (e) {
+      console.error('确认操作失败', e);
+      if (showAlert) alert('确认失败：' + e.message);
+      setConfirming(prev => ({ ...prev, [op.id]: false }));
+      return false;
+    }
   };
 
   // 保存操作
@@ -484,32 +625,63 @@ export default function OperationManager({ isOpen, onClose, fundList = [], holdi
                 <span className="muted">点击「添加记录」开始记录你的操作</span>
               </div>
             ) : (
-              operations.map(op => (
-                <div key={op.id} className="operation-item">
-                  <div className="operation-date">{op.date}</div>
-                  <div className={`operation-type ${op.type}`}>
-                    {typeLabels[op.type] || op.type}
+              operations.map(op => {
+                const pending = isPendingConfirm(op);
+                const canConfirmNow = pending && canConfirm(op.date);
+                const isConfirming = confirming[op.id];
+                
+                return (
+                  <div key={op.id} className={`operation-item ${pending ? 'pending' : ''}`}>
+                    <div className="operation-date">
+                      {op.date}
+                      {pending && (
+                        <span className="pending-badge" title="待确认份额">
+                          <AlertIcon width="12" height="12" />
+                        </span>
+                      )}
+                    </div>
+                    <div className={`operation-type ${op.type}`}>
+                      {typeLabels[op.type] || op.type}
+                    </div>
+                    <div className="operation-fund">
+                      <span className="fund-name">{op.fundName || op.fundCode}</span>
+                      {op.fundName && <span className="fund-code">#{op.fundCode}</span>}
+                    </div>
+                    <div className="operation-details">
+                      {op.amount > 0 && <span>¥{op.amount.toFixed(2)}</span>}
+                      {op.shares > 0 ? (
+                        <span>{op.shares.toFixed(2)}份</span>
+                      ) : pending ? (
+                        <span className="pending-text">待确认</span>
+                      ) : null}
+                      {op.price > 0 && <span>@{op.price.toFixed(4)}</span>}
+                    </div>
+                    {op.note && <div className="operation-note">{op.note}</div>}
+                    <div className="operation-actions">
+                      {canConfirmNow && (
+                        <button 
+                          className="icon-button confirm" 
+                          onClick={() => confirmOperation(op)} 
+                          title="确认份额"
+                          disabled={isConfirming}
+                        >
+                          {isConfirming ? (
+                            <RefreshIcon width="14" height="14" className="spin" />
+                          ) : (
+                            <CheckIcon width="14" height="14" />
+                          )}
+                        </button>
+                      )}
+                      <button className="icon-button" onClick={() => setEditingOp(op)} title="编辑">
+                        <EditIcon width="14" height="14" />
+                      </button>
+                      <button className="icon-button danger" onClick={() => handleDelete(op.id)} title="删除">
+                        <TrashIcon width="14" height="14" />
+                      </button>
+                    </div>
                   </div>
-                  <div className="operation-fund">
-                    <span className="fund-name">{op.fundName || op.fundCode}</span>
-                    {op.fundName && <span className="fund-code">#{op.fundCode}</span>}
-                  </div>
-                  <div className="operation-details">
-                    {op.amount > 0 && <span>¥{op.amount.toFixed(2)}</span>}
-                    {op.shares > 0 && <span>{op.shares.toFixed(2)}份</span>}
-                    {op.price > 0 && <span>@{op.price.toFixed(4)}</span>}
-                  </div>
-                  {op.note && <div className="operation-note">{op.note}</div>}
-                  <div className="operation-actions">
-                    <button className="icon-button" onClick={() => setEditingOp(op)} title="编辑">
-                      <EditIcon width="14" height="14" />
-                    </button>
-                    <button className="icon-button danger" onClick={() => handleDelete(op.id)} title="删除">
-                      <TrashIcon width="14" height="14" />
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </motion.div>
