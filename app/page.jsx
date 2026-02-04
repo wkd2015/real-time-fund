@@ -2269,6 +2269,8 @@ export default function HomePage() {
                   <div className="table-header-row">
                     <div className="table-cell">名称</div>
                     <div className="table-cell text-right">涨跌</div>
+                    <div className="table-cell text-right">净值</div>
+                    <div className="table-cell text-right">成本</div>
                     <div className="table-cell text-right">昨日金额</div>
                     <div className="table-cell text-right">预估金额</div>
                     <div className="table-cell text-right">今日盈亏</div>
@@ -2352,6 +2354,22 @@ export default function HomePage() {
                                   <span className={f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : '')} style={{ fontWeight: 700 }}>
                                     {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (typeof f.gszzl === 'number' ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
                                   </span>
+                                </div>
+                                {/* 净值列 */}
+                                <div className="table-cell text-right nav-cell">
+                                  <span style={{ fontWeight: 600 }}>
+                                    {f.dwjz ? parseFloat(f.dwjz).toFixed(4) : '—'}
+                                  </span>
+                                </div>
+                                {/* 成本净值列 */}
+                                <div className="table-cell text-right cost-nav-cell">
+                                  {holdingData && holdingData.costPrice > 0 ? (
+                                    <span style={{ fontWeight: 600 }}>
+                                      {holdingData.costPrice.toFixed(4)}
+                                    </span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
                                 </div>
                                 {/* 昨日金额列 */}
                                 <div className="table-cell text-right yesterday-value-cell">

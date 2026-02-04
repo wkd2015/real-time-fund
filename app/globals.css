@@ -26,7 +26,7 @@ body {
 }
 
 .container {
-  max-width: 1120px;
+  max-width: 1320px;
   margin: 0 auto;
   padding: 24px;
 }
@@ -400,7 +400,7 @@ body {
 
 .table-row {
   display: grid;
-  grid-template-columns: minmax(100px, 1.5fr) 70px 90px 90px 80px 80px 70px 100px;
+  grid-template-columns: minmax(120px, 1.8fr) 70px 80px 80px 95px 95px 85px 85px 75px 100px;
   align-items: center;
   gap: 6px;
   padding: 10px 12px !important;
@@ -418,7 +418,7 @@ body {
 
 .table-header-row {
   display: grid;
-  grid-template-columns: minmax(100px, 1.5fr) 70px 90px 90px 80px 80px 70px 100px;
+  grid-template-columns: minmax(120px, 1.8fr) 70px 80px 80px 95px 95px 85px 85px 75px 100px;
   gap: 6px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.05);
@@ -502,7 +502,9 @@ body {
   .total-profit-cell,
   .profit-rate-cell,
   .yesterday-value-cell,
-  .estimate-value-cell {
+  .estimate-value-cell,
+  .nav-cell,
+  .cost-nav-cell {
     display: none !important;
   }
 }
@@ -834,11 +836,15 @@ body {
 .operation-form-container {
   overflow: hidden;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  max-height: 45vh;
+  overflow-y: auto;
 }
 
 .operation-form {
   padding: 16px 0;
 }
+
 
 .form-row {
   display: flex;
@@ -879,6 +885,11 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+  position: sticky;
+  bottom: 0;
+  background: var(--card);
+  padding: 12px 0 4px;
+  border-top: 1px solid var(--border);
 }
 
 /* 操作列表 */
