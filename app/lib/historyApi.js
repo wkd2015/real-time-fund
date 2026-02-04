@@ -11,31 +11,112 @@
  */
 export const getFundHistory = async (fundCode, days = 90) => {
   return new Promise((resolve) => {
-    const callbackName = `fundHistory_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const script = document.createElement('script');
     
     // 计算每页数量（天天基金最大支持 49 条/页）
     const perPage = Math.min(days, 49);
-    const pages = Math.ceil(days / perPage);
+    
+    // 保存原来的 apidata
+    const originalApidata = window.apidata;
+    
+    script.onload = () => {
+      try {
+        // 天天基金接口返回的是 var apidata = {...}
+        if (window.apidata && window.apidata.content) {
+          const history = parseHistoryHtml(window.apidata.content);
+          resolve(history);
+        } else {
+          resolve([]);
+        }
+      } catch (e) {
+        console.error('解析历史净值失败', e);
+        resolve([]);
+      } finally {
+        // 恢复原来的 apidata
+        window.apidata = originalApidata;
+        if (document.body.contains(script)) document.body.removeChild(script);
+      }
+    };
+    
+    script.onerror = () => {
+      window.apidata = originalApidata;
+      if (document.body.contains(script)) document.body.removeChild(script);
+      resolve([]);
+    };
+    
+    // 使用天天基金的历史净值接口（不支持 callback，直接赋值给 apidata）
+    script.src = `https://fund.eastmoney.com/f10/F10DataApi.aspx?type=lsjz&code=${fundCode}&page=1&per=${perPage}&rt=${Date.now()}`;
+    
+    document.body.appendChild(script);
+    
+    // 超时处理
+    setTimeout(() => {
+      if (document.body.contains(script)) {
+        window.apidata = originalApidata;
+        document.body.removeChild(script);
+        resolve([]);
+      }
+    }, 10000);
+  });
+};
+
+/**
+ * 获取基金当日实时走势（分时数据）
+ * @param {string} fundCode - 基金代码
+ * @returns {Promise<Array>} 分时数据数组
+ */
+export const getFundRealtime = async (fundCode) => {
+  return new Promise((resolve) => {
+    const callbackName = `fundRealtime_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const script = document.createElement('script');
     
     window[callbackName] = (data) => {
       delete window[callbackName];
       if (document.body.contains(script)) document.body.removeChild(script);
       
       try {
-        // 解析 HTML 表格数据
-        const history = parseHistoryHtml(data.content);
-        resolve(history);
+        if (data && data.Expansion) {
+          // 解析实时走势数据
+          // 格式: "时间,估算净值,估算涨跌幅|时间,估算净值,估算涨跌幅|..."
+          const points = data.Expansion.split('|').filter(p => p).map(p => {
+            const [time, price, change] = p.split(',');
+            return {
+              time,
+              price: parseFloat(price) || 0,
+              change: parseFloat(change) || 0
+            };
+          });
+          resolve(points);
+        } else {
+          resolve([]);
+        }
       } catch (e) {
-        console.error('解析历史净值失败', e);
+        console.error('解析实时走势失败', e);
         resolve([]);
       }
     };
     
-    // 使用天天基金的历史净值接口
-    script.src = `https://fund.eastmoney.com/f10/F10DataApi.aspx?type=lsjz&code=${fundCode}&page=1&per=${perPage}&callback=${callbackName}`;
+    // 使用东方财富的基金实时走势接口
+    script.src = `https://fundgz.1234567.com.cn/js/${fundCode}.js?rt=${Date.now()}`;
+    
+    // 需要拦截 jsonpgz 回调
+    const originalJsonpgz = window.jsonpgz;
+    window.jsonpgz = (json) => {
+      window.jsonpgz = originalJsonpgz;
+      delete window[callbackName];
+      if (document.body.contains(script)) document.body.removeChild(script);
+      
+      try {
+        // 基础估值数据包含在 json 中
+        // 但分时数据需要另一个接口
+        resolve([]);
+      } catch (e) {
+        resolve([]);
+      }
+    };
     
     script.onerror = () => {
+      window.jsonpgz = originalJsonpgz;
       delete window[callbackName];
       if (document.body.contains(script)) document.body.removeChild(script);
       resolve([]);
@@ -43,11 +124,63 @@ export const getFundHistory = async (fundCode, days = 90) => {
     
     document.body.appendChild(script);
     
-    // 超时处理
     setTimeout(() => {
       if (window[callbackName]) {
+        window.jsonpgz = originalJsonpgz;
         delete window[callbackName];
         if (document.body.contains(script)) document.body.removeChild(script);
+        resolve([]);
+      }
+    }, 5000);
+  });
+};
+
+/**
+ * 获取基金当日分时走势（更可靠的接口）
+ * @param {string} fundCode - 基金代码
+ * @returns {Promise<Array>} 分时数据数组
+ */
+export const getFundIntraday = async (fundCode) => {
+  return new Promise((resolve) => {
+    const script = document.createElement('script');
+    const originalData = window.Data_netWorthTrend;
+    
+    script.onload = () => {
+      try {
+        if (window.Data_netWorthTrend && Array.isArray(window.Data_netWorthTrend)) {
+          // 获取最近的走势数据点
+          const data = window.Data_netWorthTrend.slice(-100).map(item => ({
+            time: new Date(item.x).toLocaleDateString('zh-CN'),
+            price: item.y,
+            change: item.equityReturn || 0
+          }));
+          resolve(data);
+        } else {
+          resolve([]);
+        }
+      } catch (e) {
+        console.error('解析分时走势失败', e);
+        resolve([]);
+      } finally {
+        window.Data_netWorthTrend = originalData;
+        if (document.body.contains(script)) document.body.removeChild(script);
+      }
+    };
+    
+    script.onerror = () => {
+      window.Data_netWorthTrend = originalData;
+      if (document.body.contains(script)) document.body.removeChild(script);
+      resolve([]);
+    };
+    
+    // 天天基金的净值走势数据接口
+    script.src = `https://fund.eastmoney.com/pingzhongdata/${fundCode}.js?v=${Date.now()}`;
+    document.body.appendChild(script);
+    
+    setTimeout(() => {
+      if (document.body.contains(script)) {
+        window.Data_netWorthTrend = originalData;
+        document.body.removeChild(script);
         resolve([]);
       }
     }, 10000);

@@ -400,10 +400,10 @@ body {
 
 .table-row {
   display: grid;
-  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
+  grid-template-columns: minmax(100px, 1.5fr) 70px 90px 90px 80px 80px 70px 100px;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px !important;
+  gap: 6px;
+  padding: 10px 12px !important;
   border-bottom: 1px solid var(--border);
   transition: background-color 0.2s ease;
 }
@@ -418,9 +418,9 @@ body {
 
 .table-header-row {
   display: grid;
-  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
-  gap: 8px;
-  padding: 10px 16px;
+  grid-template-columns: minmax(100px, 1.5fr) 70px 90px 90px 80px 80px 70px 100px;
+  gap: 6px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.05);
   border-bottom: 1px solid var(--border);
   font-size: 12px;
@@ -500,7 +500,9 @@ body {
   /* 移动端隐藏持仓相关列 */
   .holding-profit-cell,
   .total-profit-cell,
-  .profit-rate-cell {
+  .profit-rate-cell,
+  .yesterday-value-cell,
+  .estimate-value-cell {
     display: none !important;
   }
 }
@@ -743,15 +745,6 @@ body {
   color: var(--primary);
   margin-left: 6px;
   flex-shrink: 0;
-}
-
-/* 列表视图操作按钮调整 */
-.table-row {
-  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
-}
-
-.table-header-row {
-  grid-template-columns: minmax(120px, 2fr) 0.8fr 1fr 1fr 0.8fr 70px;
 }
 
 /* 列表模式名称样式 */
@@ -1213,4 +1206,146 @@ body {
 .import-item-code input.input:focus {
   outline: none;
   border-color: var(--primary);
+}
+
+/* ========== 图表相关样式 ========== */
+.chart-modal {
+  width: 90%;
+  max-width: 600px !important;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.chart-period-selector {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.chart-period-selector .chip {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.chart-container {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  padding: 16px 8px 8px;
+  margin-bottom: 16px;
+}
+
+.chart-loading,
+.chart-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 200px;
+  color: var(--muted);
+}
+
+.chart-error {
+  color: var(--danger);
+}
+
+.chart-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.chart-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart-stat .label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.chart-stat .value {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chart-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+/* 自定义 Tooltip */
+.chart-tooltip {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.chart-tooltip-date {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.chart-tooltip-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.chart-tooltip-change {
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.chart-tooltip-change.up {
+  color: var(--danger);
+}
+
+.chart-tooltip-change.down {
+  color: var(--success);
+}
+
+/* Recharts 覆写 */
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: var(--border);
+  stroke-opacity: 0.5;
+}
+
+/* 响应式调整 */
+@media (max-width: 640px) {
+  .chart-modal {
+    max-width: 95vw !important;
+    max-height: 85vh;
+  }
+  
+  .chart-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .chart-stat .value {
+    font-size: 13px;
+  }
+  
+  .chart-container {
+    padding: 12px 4px 4px;
+  }
 }

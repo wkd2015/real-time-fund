@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart, ReferenceLine } from 'recharts';
 import Announcement from "./components/Announcement";
 import OperationManager from "./components/OperationManager";
+import { getFundHistory, getFundIntraday } from './lib/historyApi';
 
 function PlusIcon(props) {
   return (
@@ -171,6 +173,15 @@ function DownloadIcon(props) {
   );
 }
 
+function ChartIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M3 3v18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M18.7 8l-5.1 5.2-2.8-2.7L7 14.3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function FolderIcon(props) {
   return (
     <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
@@ -297,7 +308,7 @@ function EditHoldingModal({ fund, holding, onSave, onClose }) {
 }
 
 // 资产汇总组件
-function PortfolioSummary({ funds, holdings }) {
+function PortfolioSummary({ funds, holdings, onOpenChart }) {
   // 计算汇总数据
   const summary = funds.reduce((acc, f) => {
     const h = holdings[f.code];
@@ -328,10 +339,20 @@ function PortfolioSummary({ funds, holdings }) {
 
   return (
     <div className="col-12 glass card portfolio-summary">
-      <div className="title" style={{ marginBottom: 16 }}>
-        <WalletIcon width="20" height="20" />
-        <span>持仓汇总</span>
-        <span className="muted">共 {summary.holdingCount} 只持仓基金</span>
+      <div className="title" style={{ marginBottom: 16, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <WalletIcon width="20" height="20" />
+          <span>持仓汇总</span>
+          <span className="muted">共 {summary.holdingCount} 只持仓基金</span>
+        </div>
+        <button 
+          className="icon-button" 
+          onClick={onOpenChart}
+          title="查看走势"
+          style={{ width: '32px', height: '32px' }}
+        >
+          <ChartIcon width="16" height="16" />
+        </button>
       </div>
       
       <div className="summary-grid">
@@ -863,6 +884,545 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
   );
 }
 
+// 自定义 Tooltip 组件
+function CustomChartTooltip({ active, payload, label, isIntraday }) {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="chart-tooltip">
+        <div className="chart-tooltip-date">{isIntraday ? data.time : data.date}</div>
+        <div className="chart-tooltip-value">净值: {data.price.toFixed(4)}</div>
+        {(data.changeRate !== undefined || data.change !== undefined) && (
+          <div className={`chart-tooltip-change ${(data.changeRate || data.change) >= 0 ? 'up' : 'down'}`}>
+            涨跌: {(data.changeRate || data.change) >= 0 ? '+' : ''}{(data.changeRate || data.change).toFixed(2)}%
+          </div>
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
+// 基金走势图弹窗
+function FundChartModal({ fund, holding, intradayData: passedIntradayData = [], onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [historyData, setHistoryData] = useState([]);
+  const [period, setPeriod] = useState(passedIntradayData.length > 0 ? 'today' : '30'); // 'today', '7', '30', '60', '90'
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (period === 'today') {
+        // 使用传入的盘中数据
+        setLoading(false);
+        if (passedIntradayData.length === 0) {
+          setError('暂无今日盘中数据（需要在交易时间段打开页面记录）');
+        } else {
+          setError('');
+        }
+        return;
+      }
+      
+      setLoading(true);
+      setError('');
+      try {
+        // 获取历史数据
+        const days = parseInt(period);
+        const data = await getFundHistory(fund.code, days);
+        if (data && data.length > 0) {
+          // 按日期排序（升序）
+          const sorted = [...data].sort((a, b) => new Date(a.date) - new Date(b.date));
+          setHistoryData(sorted);
+        } else {
+          setError('暂无历史数据');
+        }
+      } catch (e) {
+        console.error('获取数据失败', e);
+        setError('获取数据失败');
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [fund.code, period, passedIntradayData.length]);
+
+  // 当前显示的数据
+  const chartData = period === 'today' 
+    ? passedIntradayData.map(r => ({ time: r.time, price: r.gsz, change: r.gszzl }))
+    : historyData;
+
+  // 计算统计数据
+  const stats = chartData.length > 0 ? (() => {
+    const prices = chartData.map(d => d.price).filter(p => p > 0);
+    if (prices.length === 0) return null;
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    const first = prices[0];
+    const last = prices[prices.length - 1];
+    const change = first > 0 ? ((last - first) / first * 100) : 0;
+    return { min, max, change, first, last };
+  })() : null;
+
+  // 计算持仓走势（如果有持仓且不是今日分时）
+  const holdingChartData = (holding && holding.shares > 0 && period !== 'today') ? historyData.map(d => ({
+    ...d,
+    marketValue: d.price * holding.shares,
+    costValue: holding.costPrice > 0 ? holding.costPrice * holding.shares : null,
+    profit: holding.costPrice > 0 ? (d.price - holding.costPrice) * holding.shares : null
+  })) : null;
+
+  return (
+    <motion.div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="基金走势"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="glass card modal chart-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="title" style={{ marginBottom: 16, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <ChartIcon width="20" height="20" />
+            <div>
+              <span>{fund.name}</span>
+              <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>#{fund.code}</span>
+            </div>
+          </div>
+          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
+            <CloseIcon width="20" height="20" />
+          </button>
+        </div>
+
+        {/* 时间段选择 */}
+        <div className="chart-period-selector">
+          {[
+            { value: 'today', label: `今日${passedIntradayData.length > 0 ? `(${passedIntradayData.length})` : ''}` },
+            { value: '7', label: '7天' },
+            { value: '30', label: '30天' },
+            { value: '60', label: '60天' },
+            { value: '90', label: '90天' }
+          ].map(p => (
+            <button
+              key={p.value}
+              className={`chip ${period === p.value ? 'active' : ''}`}
+              onClick={() => setPeriod(p.value)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 图表区域 */}
+        <div className="chart-container">
+          {loading ? (
+            <div className="chart-loading">
+              <RefreshIcon width="24" height="24" className="spin" />
+              <span>加载中...</span>
+            </div>
+          ) : error ? (
+            <div className="chart-error">
+              <AlertIcon width="24" height="24" />
+              <span>{error}</span>
+            </div>
+          ) : chartData.length === 0 ? (
+            <div className="chart-error">
+              <AlertIcon width="24" height="24" />
+              <span>暂无数据</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis 
+                  dataKey={period === 'today' ? 'time' : 'date'} 
+                  tickFormatter={(v) => period === 'today' ? v : (v ? v.slice(5) : '')}
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={{ stroke: 'var(--border)' }}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                  domain={['auto', 'auto']}
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => v.toFixed(2)}
+                  width={50}
+                />
+                <Tooltip content={<CustomChartTooltip isIntraday={period === 'today'} />} />
+                {stats && (
+                  <ReferenceLine y={stats.first} stroke="var(--muted)" strokeDasharray="3 3" />
+                )}
+                <Area 
+                  type="monotone" 
+                  dataKey="price" 
+                  stroke="var(--primary)" 
+                  strokeWidth={2}
+                  fill="url(#colorPrice)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* 统计信息 */}
+        {stats && !loading && !error && (
+          <div className="chart-stats">
+            <div className="chart-stat">
+              <span className="label">期间涨跌</span>
+              <span className={`value ${stats.change >= 0 ? 'up' : 'down'}`}>
+                {stats.change >= 0 ? '+' : ''}{stats.change.toFixed(2)}%
+              </span>
+            </div>
+            <div className="chart-stat">
+              <span className="label">最高净值</span>
+              <span className="value">{stats.max.toFixed(4)}</span>
+            </div>
+            <div className="chart-stat">
+              <span className="label">最低净值</span>
+              <span className="value">{stats.min.toFixed(4)}</span>
+            </div>
+            <div className="chart-stat">
+              <span className="label">当前净值</span>
+              <span className="value">{stats.last.toFixed(4)}</span>
+            </div>
+          </div>
+        )}
+
+        {/* 持仓走势（如果有持仓） */}
+        {holdingChartData && !loading && !error && (
+          <>
+            <div className="chart-section-title">
+              <WalletIcon width="16" height="16" />
+              <span>持仓市值走势</span>
+            </div>
+            <div className="chart-container" style={{ marginBottom: 16 }}>
+              <ResponsiveContainer width="100%" height={160}>
+                <AreaChart data={holdingChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--accent)" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="var(--accent)" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(v) => v.slice(5)}
+                    tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                    axisLine={{ stroke: 'var(--border)' }}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis 
+                    domain={['auto', 'auto']}
+                    tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(1)}k` : v.toFixed(0)}
+                    width={45}
+                  />
+                  <Tooltip 
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const d = payload[0].payload;
+                        return (
+                          <div className="chart-tooltip">
+                            <div className="chart-tooltip-date">{d.date}</div>
+                            <div className="chart-tooltip-value">市值: {d.marketValue.toFixed(2)}</div>
+                            {d.profit !== null && (
+                              <div className={`chart-tooltip-change ${d.profit >= 0 ? 'up' : 'down'}`}>
+                                盈亏: {d.profit >= 0 ? '+' : ''}{d.profit.toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
+                  {holding.costPrice > 0 && (
+                    <ReferenceLine 
+                      y={holding.costPrice * holding.shares} 
+                      stroke="var(--danger)" 
+                      strokeDasharray="3 3"
+                      label={{ value: '成本', fill: 'var(--danger)', fontSize: 10 }}
+                    />
+                  )}
+                  <Area 
+                    type="monotone" 
+                    dataKey="marketValue" 
+                    stroke="var(--accent)" 
+                    strokeWidth={2}
+                    fill="url(#colorValue)" 
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// 总持仓走势图弹窗
+function PortfolioChartModal({ funds, holdings, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [chartData, setChartData] = useState([]);
+  const [days, setDays] = useState(30);
+  const [error, setError] = useState('');
+
+  // 获取有持仓的基金列表
+  const holdingFunds = funds.filter(f => holdings[f.code]?.shares > 0);
+
+  useEffect(() => {
+    const fetchAllHistory = async () => {
+      if (holdingFunds.length === 0) {
+        setError('暂无持仓');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+      
+      try {
+        // 获取所有持仓基金的历史数据
+        const allHistories = {};
+        for (const fund of holdingFunds) {
+          const history = await getFundHistory(fund.code, days);
+          if (history && history.length > 0) {
+            allHistories[fund.code] = history;
+          }
+        }
+
+        // 合并所有日期
+        const allDates = new Set();
+        Object.values(allHistories).forEach(history => {
+          history.forEach(d => allDates.add(d.date));
+        });
+        
+        const sortedDates = Array.from(allDates).sort();
+        
+        // 计算每天的总市值
+        const dailyData = sortedDates.map(date => {
+          let totalValue = 0;
+          let totalCost = 0;
+          
+          holdingFunds.forEach(fund => {
+            const h = holdings[fund.code];
+            const history = allHistories[fund.code];
+            if (history) {
+              // 找到该日期或最近的数据
+              const dayData = history.find(d => d.date === date) || 
+                history.filter(d => d.date <= date).pop();
+              if (dayData) {
+                totalValue += dayData.price * h.shares;
+                if (h.costPrice > 0) {
+                  totalCost += h.costPrice * h.shares;
+                }
+              }
+            }
+          });
+          
+          return {
+            date,
+            totalValue,
+            totalCost: totalCost > 0 ? totalCost : null,
+            profit: totalCost > 0 ? totalValue - totalCost : null
+          };
+        });
+
+        setChartData(dailyData);
+      } catch (e) {
+        console.error('获取历史数据失败', e);
+        setError('获取数据失败');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAllHistory();
+  }, [days, holdingFunds.length]);
+
+  // 计算统计数据
+  const stats = chartData.length > 0 ? (() => {
+    const values = chartData.map(d => d.totalValue);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const first = values[0];
+    const last = values[values.length - 1];
+    const change = first > 0 ? ((last - first) / first * 100) : 0;
+    const lastData = chartData[chartData.length - 1];
+    return { min, max, change, first, last, profit: lastData.profit, cost: lastData.totalCost };
+  })() : null;
+
+  return (
+    <motion.div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="总持仓走势"
+      onClick={onClose}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="glass card modal chart-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="title" style={{ marginBottom: 16, justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <WalletIcon width="20" height="20" />
+            <div>
+              <span>总持仓走势</span>
+              <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>共 {holdingFunds.length} 只基金</span>
+            </div>
+          </div>
+          <button className="icon-button" onClick={onClose} style={{ border: 'none', background: 'transparent' }}>
+            <CloseIcon width="20" height="20" />
+          </button>
+        </div>
+
+        {/* 时间段选择 */}
+        <div className="chart-period-selector">
+          {[
+            { value: 7, label: '7天' },
+            { value: 30, label: '30天' },
+            { value: 60, label: '60天' },
+            { value: 90, label: '90天' }
+          ].map(p => (
+            <button
+              key={p.value}
+              className={`chip ${days === p.value ? 'active' : ''}`}
+              onClick={() => setDays(p.value)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* 图表区域 */}
+        <div className="chart-container">
+          {loading ? (
+            <div className="chart-loading">
+              <RefreshIcon width="24" height="24" className="spin" />
+              <span>加载中（{holdingFunds.length} 只基金）...</span>
+            </div>
+          ) : error ? (
+            <div className="chart-error">
+              <AlertIcon width="24" height="24" />
+              <span>{error}</span>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorPortfolio" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis 
+                  dataKey="date" 
+                  tickFormatter={(v) => v.slice(5)}
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={{ stroke: 'var(--border)' }}
+                  tickLine={false}
+                  interval="preserveStartEnd"
+                />
+                <YAxis 
+                  domain={['auto', 'auto']}
+                  tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v) => v >= 10000 ? `${(v/10000).toFixed(1)}万` : v >= 1000 ? `${(v/1000).toFixed(1)}k` : v.toFixed(0)}
+                  width={50}
+                />
+                <Tooltip 
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const d = payload[0].payload;
+                      return (
+                        <div className="chart-tooltip">
+                          <div className="chart-tooltip-date">{d.date}</div>
+                          <div className="chart-tooltip-value">总市值: {d.totalValue.toFixed(2)}</div>
+                          {d.profit !== null && (
+                            <div className={`chart-tooltip-change ${d.profit >= 0 ? 'up' : 'down'}`}>
+                              累计盈亏: {d.profit >= 0 ? '+' : ''}{d.profit.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                {stats && stats.cost && (
+                  <ReferenceLine 
+                    y={stats.cost} 
+                    stroke="var(--danger)" 
+                    strokeDasharray="3 3"
+                  />
+                )}
+                <Area 
+                  type="monotone" 
+                  dataKey="totalValue" 
+                  stroke="var(--primary)" 
+                  strokeWidth={2}
+                  fill="url(#colorPortfolio)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* 统计信息 */}
+        {stats && !loading && !error && (
+          <div className="chart-stats">
+            <div className="chart-stat">
+              <span className="label">期间涨跌</span>
+              <span className={`value ${stats.change >= 0 ? 'up' : 'down'}`}>
+                {stats.change >= 0 ? '+' : ''}{stats.change.toFixed(2)}%
+              </span>
+            </div>
+            <div className="chart-stat">
+              <span className="label">最高市值</span>
+              <span className="value">{stats.max.toFixed(0)}</span>
+            </div>
+            <div className="chart-stat">
+              <span className="label">最低市值</span>
+              <span className="value">{stats.min.toFixed(0)}</span>
+            </div>
+            <div className="chart-stat">
+              <span className="label">当前市值</span>
+              <span className="value">{stats.last.toFixed(0)}</span>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function HomePage() {
   const [funds, setFunds] = useState([]);
   const [code, setCode] = useState('');
@@ -903,6 +1463,113 @@ export default function HomePage() {
 
   // 截图导入弹窗状态
   const [importModalOpen, setImportModalOpen] = useState(false);
+
+  // 图表弹窗状态
+  const [chartFund, setChartFund] = useState(null);
+  const [portfolioChartOpen, setPortfolioChartOpen] = useState(false);
+
+  // 盘中估值记录 { [code]: { date: string, records: [{time, gsz, gszzl}] } }
+  const [intradayRecords, setIntradayRecords] = useState({});
+  const intradayTimerRef = useRef(null);
+
+  // 检查是否在交易时间内（9:30-15:00，周一至周五）
+  const isTradeTime = () => {
+    const now = new Date();
+    const day = now.getDay();
+    if (day === 0 || day === 6) return false; // 周末
+    
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const time = hours * 60 + minutes;
+    
+    // 上午 9:30 - 11:30，下午 13:00 - 15:00
+    return (time >= 570 && time <= 690) || (time >= 780 && time <= 900);
+  };
+
+  // 获取今天的日期字符串
+  const getTodayStr = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  };
+
+  // 记录当前估值数据
+  const recordIntradayData = () => {
+    if (!isTradeTime() || funds.length === 0) return;
+    
+    const today = getTodayStr();
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    
+    setIntradayRecords(prev => {
+      const next = { ...prev };
+      
+      funds.forEach(f => {
+        const gsz = parseFloat(f.gsz) || 0;
+        const gszzl = typeof f.gszzl === 'number' ? f.gszzl : (parseFloat(f.gszzl) || 0);
+        
+        if (gsz <= 0) return; // 无有效估值数据
+        
+        if (!next[f.code] || next[f.code].date !== today) {
+          // 新的一天，重置记录
+          next[f.code] = { date: today, records: [] };
+        }
+        
+        // 检查是否已经有相同时间的记录（避免重复）
+        const lastRecord = next[f.code].records[next[f.code].records.length - 1];
+        if (lastRecord && lastRecord.time === timeStr) return;
+        
+        next[f.code].records.push({
+          time: timeStr,
+          gsz,
+          gszzl
+        });
+      });
+      
+      // 保存到 localStorage
+      localStorage.setItem('intradayRecords', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // 加载盘中记录
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('intradayRecords') || '{}');
+      const today = getTodayStr();
+      
+      // 只保留今天的记录
+      const filtered = {};
+      Object.keys(saved).forEach(code => {
+        if (saved[code].date === today) {
+          filtered[code] = saved[code];
+        }
+      });
+      
+      setIntradayRecords(filtered);
+      localStorage.setItem('intradayRecords', JSON.stringify(filtered));
+    } catch (e) {
+      console.error('加载盘中记录失败', e);
+    }
+  }, []);
+
+  // 定时记录盘中数据（每分钟记录一次）
+  useEffect(() => {
+    // 立即记录一次
+    if (funds.length > 0) {
+      recordIntradayData();
+    }
+    
+    // 设置定时器，每分钟记录一次
+    intradayTimerRef.current = setInterval(() => {
+      recordIntradayData();
+    }, 60000); // 1分钟
+    
+    return () => {
+      if (intradayTimerRef.current) {
+        clearInterval(intradayTimerRef.current);
+      }
+    };
+  }, [funds]);
 
   const toggleFavorite = (code) => {
     setFavorites(prev => {
@@ -1501,7 +2168,7 @@ export default function HomePage() {
         </div>
 
         {/* 持仓汇总 */}
-        <PortfolioSummary funds={funds} holdings={holdings} />
+        <PortfolioSummary funds={funds} holdings={holdings} onOpenChart={() => setPortfolioChartOpen(true)} />
 
         <div className="col-12">
           {funds.length > 0 && (
@@ -1554,9 +2221,10 @@ export default function HomePage() {
                     {[
                       { id: 'default', label: '默认' },
                       { id: 'yield', label: '涨跌幅' },
+                      { id: 'yesterdayValue', label: '昨日金额' },
+                      { id: 'estimateValue', label: '预估金额' },
                       { id: 'dayProfit', label: '今日盈亏' },
                       { id: 'profit', label: '累计盈亏' },
-                      { id: 'marketValue', label: '市值' },
                       { id: 'name', label: '名称' }
                     ].map((s) => (
                       <button
@@ -1601,6 +2269,8 @@ export default function HomePage() {
                   <div className="table-header-row">
                     <div className="table-cell">名称</div>
                     <div className="table-cell text-right">涨跌</div>
+                    <div className="table-cell text-right">昨日金额</div>
+                    <div className="table-cell text-right">预估金额</div>
                     <div className="table-cell text-right">今日盈亏</div>
                     <div className="table-cell text-right">累计盈亏</div>
                     <div className="table-cell text-right">收益率</div>
@@ -1618,12 +2288,19 @@ export default function HomePage() {
                           const valB = typeof b.estGszzl === 'number' ? b.estGszzl : (Number(b.gszzl) || 0);
                           return (valB - valA) * dir;
                         }
-                        if (sortBy === 'marketValue') {
+                        if (sortBy === 'yesterdayValue') {
+                          const hA = holdings[a.code];
+                          const hB = holdings[b.code];
+                          const yvA = hA?.shares > 0 ? hA.shares * (parseFloat(a.dwjz) || 0) : 0;
+                          const yvB = hB?.shares > 0 ? hB.shares * (parseFloat(b.dwjz) || 0) : 0;
+                          return (yvB - yvA) * dir;
+                        }
+                        if (sortBy === 'estimateValue') {
                           const hA = calcHoldingData(a);
                           const hB = calcHoldingData(b);
-                          const mvA = hA?.marketValue || 0;
-                          const mvB = hB?.marketValue || 0;
-                          return (mvB - mvA) * dir;
+                          const evA = hA?.marketValue || 0;
+                          const evB = hB?.marketValue || 0;
+                          return (evB - evA) * dir;
                         }
                         if (sortBy === 'dayProfit') {
                           const hA = calcHoldingData(a);
@@ -1676,6 +2353,26 @@ export default function HomePage() {
                                     {f.estPricedCoverage > 0.05 ? `${f.estGszzl > 0 ? '+' : ''}${f.estGszzl.toFixed(2)}%` : (typeof f.gszzl === 'number' ? `${f.gszzl > 0 ? '+' : ''}${f.gszzl.toFixed(2)}%` : f.gszzl ?? '—')}
                                   </span>
                                 </div>
+                                {/* 昨日金额列 */}
+                                <div className="table-cell text-right yesterday-value-cell">
+                                  {holdingData ? (
+                                    <span style={{ fontWeight: 600 }}>
+                                      {(holdingData.shares * parseFloat(f.dwjz || 0)).toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </div>
+                                {/* 预估金额列 */}
+                                <div className="table-cell text-right estimate-value-cell">
+                                  {holdingData ? (
+                                    <span className={holdingData.dayProfit > 0 ? 'up' : holdingData.dayProfit < 0 ? 'down' : ''} style={{ fontWeight: 600 }}>
+                                      {holdingData.marketValue.toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    <span className="muted">—</span>
+                                  )}
+                                </div>
                                 {/* 今日盈亏列 */}
                                 <div className="table-cell text-right holding-profit-cell">
                                   {holdingData ? (
@@ -1707,6 +2404,14 @@ export default function HomePage() {
                                   )}
                                 </div>
                                 <div className="table-cell text-center action-cell">
+                                  <button
+                                    className="icon-button"
+                                    onClick={() => setChartFund(f)}
+                                    title="查看走势"
+                                    style={{ width: '28px', height: '28px' }}
+                                  >
+                                    <ChartIcon width="14" height="14" />
+                                  </button>
                                   <button
                                     className="icon-button"
                                     onClick={() => setEditingFund(f)}
@@ -1752,6 +2457,13 @@ export default function HomePage() {
                                 <span>估值时间</span>
                                 <strong>{f.gztime || f.time || '-'}</strong>
                               </div>
+                              <button
+                                className="icon-button"
+                                onClick={() => setChartFund(f)}
+                                title="查看走势"
+                              >
+                                <ChartIcon width="18" height="18" />
+                              </button>
                               <button
                                 className="icon-button"
                                 onClick={() => setEditingFund(f)}
@@ -1917,6 +2629,27 @@ export default function HomePage() {
             existingFunds={funds}
             onImport={handleImportFromScreenshot}
             onClose={() => setImportModalOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {chartFund && (
+          <FundChartModal
+            fund={chartFund}
+            holding={holdings[chartFund.code]}
+            intradayData={intradayRecords[chartFund.code]?.records || []}
+            onClose={() => setChartFund(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {portfolioChartOpen && (
+          <PortfolioChartModal
+            funds={funds}
+            holdings={holdings}
+            onClose={() => setPortfolioChartOpen(false)}
           />
         )}
       </AnimatePresence>
