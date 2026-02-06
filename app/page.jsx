@@ -885,7 +885,7 @@ function ImportScreenshotModal({ onImport, onClose, existingFunds }) {
 }
 
 // 自定义 Tooltip 组件
-function CustomChartTooltip({ active, payload, label, isIntraday }) {
+function CustomChartTooltip({ active, payload, label, isIntraday, showMA }) {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
@@ -897,14 +897,71 @@ function CustomChartTooltip({ active, payload, label, isIntraday }) {
             涨跌: {(data.changeRate || data.change) >= 0 ? '+' : ''}{(data.changeRate || data.change).toFixed(2)}%
           </div>
         )}
+        {showMA && (
+          <div className="chart-tooltip-ma">
+            {data.ma5 && <div style={{ color: '#f59e0b' }}>MA5: {data.ma5.toFixed(4)}</div>}
+            {data.ma10 && <div style={{ color: '#8b5cf6' }}>MA10: {data.ma10.toFixed(4)}</div>}
+            {data.ma60 && <div style={{ color: '#ef4444' }}>MA60: {data.ma60.toFixed(4)}</div>}
+          </div>
+        )}
       </div>
     );
   }
   return null;
 }
 
+// 计算移动平均线
+function calculateMA(data, period) {
+  if (!data || data.length < period) return [];
+  
+  return data.map((item, index) => {
+    if (index < period - 1) {
+      return { ...item, [`ma${period}`]: null };
+    }
+    const sum = data.slice(index - period + 1, index + 1).reduce((acc, d) => acc + d.price, 0);
+    return { ...item, [`ma${period}`]: sum / period };
+  });
+}
+
+// 为数据添加所有均线
+function addMALines(data) {
+  if (!data || data.length === 0) return data;
+  
+  // 先计算各条均线
+  let result = [...data];
+  [5, 10, 60].forEach(period => {
+    result = result.map((item, index) => {
+      if (index < period - 1) {
+        return { ...item, [`ma${period}`]: null };
+      }
+      const sum = data.slice(index - period + 1, index + 1).reduce((acc, d) => acc + d.price, 0);
+      return { ...item, [`ma${period}`]: sum / period };
+    });
+  });
+  
+  return result;
+}
+
+// 判断是否跌破均线
+function checkMABreakdown(data) {
+  if (!data || data.length < 60) return { ma5: false, ma10: false, ma60: false };
+  
+  const latest = data[data.length - 1];
+  const currentPrice = latest.price;
+  
+  return {
+    ma5: latest.ma5 !== null && currentPrice < latest.ma5,
+    ma10: latest.ma10 !== null && currentPrice < latest.ma10,
+    ma60: latest.ma60 !== null && currentPrice < latest.ma60,
+    currentPrice,
+    ma5Value: latest.ma5,
+    ma10Value: latest.ma10,
+    ma60Value: latest.ma60
+  };
+}
+
 // 基金走势图弹窗
-function FundChartModal({ fund, holding, intradayData: passedIntradayData = [], onClose }) {
+function FundChartModal({ fund, holding, intradayData: passedIntradayData = [], onClose, onMAUpdate }) {
   const [loading, setLoading] = useState(true);
   const [historyData, setHistoryData] = useState([]);
   const [period, setPeriod] = useState(passedIntradayData.length > 0 ? 'today' : '30'); // 'today', '7', '30', '60', '90'
@@ -946,10 +1003,26 @@ function FundChartModal({ fund, holding, intradayData: passedIntradayData = [], 
     fetchData();
   }, [fund.code, period, passedIntradayData.length]);
 
-  // 当前显示的数据
-  const chartData = period === 'today' 
+  // 当前显示的数据（添加均线）
+  const chartDataRaw = period === 'today' 
     ? passedIntradayData.map(r => ({ time: r.time, price: r.gsz, change: r.gszzl }))
     : historyData;
+  
+  // 为历史数据添加均线（今日分时不显示均线）
+  const chartData = period !== 'today' ? addMALines(chartDataRaw) : chartDataRaw;
+  
+  // 均线跌破状态
+  const maBreakdown = period !== 'today' && chartData.length >= 60 
+    ? checkMABreakdown(chartData) 
+    : null;
+  
+  // 当均线数据更新时，通知父组件
+  useEffect(() => {
+    if (onMAUpdate && period !== 'today' && chartData.length >= 60) {
+      const breakdown = checkMABreakdown(chartData);
+      onMAUpdate(fund.code, breakdown);
+    }
+  }, [chartData, fund.code, onMAUpdate, period]);
 
   // 计算统计数据
   const stats = chartData.length > 0 ? (() => {
@@ -1063,7 +1136,7 @@ function FundChartModal({ fund, holding, intradayData: passedIntradayData = [], 
                   tickFormatter={(v) => v.toFixed(2)}
                   width={50}
                 />
-                <Tooltip content={<CustomChartTooltip isIntraday={period === 'today'} />} />
+                <Tooltip content={<CustomChartTooltip isIntraday={period === 'today'} showMA={period !== 'today'} />} />
                 {stats && (
                   <ReferenceLine y={stats.first} stroke="var(--muted)" strokeDasharray="3 3" />
                 )}
@@ -1073,11 +1146,65 @@ function FundChartModal({ fund, holding, intradayData: passedIntradayData = [], 
                   stroke="var(--primary)" 
                   strokeWidth={2}
                   fill="url(#colorPrice)" 
+                  name="净值"
                 />
+                {/* 均线 - 只在非今日模式显示 */}
+                {period !== 'today' && (
+                  <>
+                    <Line 
+                      type="monotone" 
+                      dataKey="ma5" 
+                      stroke="#f59e0b" 
+                      strokeWidth={1.5}
+                      dot={false}
+                      name="MA5"
+                      connectNulls={false}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="ma10" 
+                      stroke="#8b5cf6" 
+                      strokeWidth={1.5}
+                      dot={false}
+                      name="MA10"
+                      connectNulls={false}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="ma60" 
+                      stroke="#ef4444" 
+                      strokeWidth={1.5}
+                      dot={false}
+                      name="MA60"
+                      connectNulls={false}
+                    />
+                  </>
+                )}
               </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
+
+        {/* 均线图例和状态 */}
+        {period !== 'today' && !loading && !error && chartData.length > 0 && (
+          <div className="ma-legend">
+            <div className="ma-legend-items">
+              <span className="ma-legend-item" style={{ color: '#f59e0b' }}>● MA5</span>
+              <span className="ma-legend-item" style={{ color: '#8b5cf6' }}>● MA10</span>
+              <span className="ma-legend-item" style={{ color: '#ef4444' }}>● MA60</span>
+            </div>
+            {maBreakdown && (
+              <div className="ma-status">
+                {maBreakdown.ma5 && <span className="ma-alert ma5">跌破MA5</span>}
+                {maBreakdown.ma10 && <span className="ma-alert ma10">跌破MA10</span>}
+                {maBreakdown.ma60 && <span className="ma-alert ma60">跌破MA60</span>}
+                {!maBreakdown.ma5 && !maBreakdown.ma10 && !maBreakdown.ma60 && (
+                  <span className="ma-ok">均线上方</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 统计信息 */}
         {stats && !loading && !error && (
@@ -1468,6 +1595,10 @@ export default function HomePage() {
   const [chartFund, setChartFund] = useState(null);
   const [portfolioChartOpen, setPortfolioChartOpen] = useState(false);
 
+  // 均线缓存 { [code]: { ma5: bool, ma10: bool, ma60: bool, updatedAt: timestamp } }
+  const [maCache, setMACache] = useState({});
+  const [maRefreshing, setMARefreshing] = useState(false);
+
   // 盘中估值记录 { [code]: { date: string, records: [{time, gsz, gszzl}] } }
   const [intradayRecords, setIntradayRecords] = useState({});
   const intradayTimerRef = useRef(null);
@@ -1570,6 +1701,58 @@ export default function HomePage() {
       }
     };
   }, [funds]);
+
+  // 加载均线缓存
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('maCache') || '{}');
+      setMACache(saved);
+    } catch (e) {
+      console.error('加载均线缓存失败', e);
+    }
+  }, []);
+
+  // 均线更新回调
+  const handleMAUpdate = (fundCode, breakdown) => {
+    setMACache(prev => {
+      const next = {
+        ...prev,
+        [fundCode]: {
+          ...breakdown,
+          updatedAt: Date.now()
+        }
+      };
+      localStorage.setItem('maCache', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // 批量刷新所有基金的均线状态
+  const refreshAllMA = async () => {
+    if (maRefreshing) return;
+    setMARefreshing(true);
+    
+    try {
+      for (const f of funds) {
+        // 获取 90 天历史数据
+        const data = await getFundHistory(f.code, 90);
+        if (data && data.length > 0) {
+          const sorted = [...data].sort((a, b) => new Date(a.date) - new Date(b.date));
+          const withMA = addMALines(sorted);
+          if (withMA.length >= 60) {
+            const breakdown = checkMABreakdown(withMA);
+            handleMAUpdate(f.code, breakdown);
+          }
+        }
+        // 间隔 300ms 避免请求过快
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } catch (e) {
+      console.error('刷新均线失败', e);
+    }
+    
+    setMARefreshing(false);
+  };
 
   const toggleFavorite = (code) => {
     setFavorites(prev => {
@@ -2248,6 +2431,19 @@ export default function HomePage() {
                     )}
                   </div>
                 </div>
+
+                <div className="divider" style={{ width: '1px', height: '20px', background: 'var(--border)' }} />
+
+                {/* 刷新均线按钮 */}
+                <button
+                  className="ma-refresh-btn"
+                  onClick={refreshAllMA}
+                  disabled={maRefreshing}
+                  title="批量刷新所有基金的均线状态"
+                >
+                  <RefreshIcon width="12" height="12" className={maRefreshing ? 'spin' : ''} />
+                  {maRefreshing ? '刷新中...' : '刷新均线'}
+                </button>
               </div>
             </div>
           )}
@@ -2349,6 +2545,14 @@ export default function HomePage() {
                                     <StarIcon width="16" height="16" filled={favorites.has(f.code)} />
                                   </button>
                                   <span className="list-name-text" title={f.name}>{f.name}</span>
+                                  {/* 均线跌破标注 */}
+                                  {maCache[f.code] && (maCache[f.code].ma5 || maCache[f.code].ma10 || maCache[f.code].ma60) && (
+                                    <span className="ma-badges">
+                                      {maCache[f.code].ma60 && <span className="ma-badge ma60" title="跌破60日线">60</span>}
+                                      {maCache[f.code].ma10 && <span className="ma-badge ma10" title="跌破10日线">10</span>}
+                                      {maCache[f.code].ma5 && <span className="ma-badge ma5" title="跌破5日线">5</span>}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="table-cell text-right change-cell">
                                   <span className={f.estPricedCoverage > 0.05 ? (f.estGszzl > 0 ? 'up' : f.estGszzl < 0 ? 'down' : '') : (Number(f.gszzl) > 0 ? 'up' : Number(f.gszzl) < 0 ? 'down' : '')} style={{ fontWeight: 700 }}>
@@ -2467,6 +2671,14 @@ export default function HomePage() {
                               <div className="title-text">
                                 <span>{f.name}</span>
                                 <span className="muted">#{f.code}</span>
+                                {/* 均线跌破标注 */}
+                                {maCache[f.code] && (maCache[f.code].ma5 || maCache[f.code].ma10 || maCache[f.code].ma60) && (
+                                  <span className="ma-badges">
+                                    {maCache[f.code].ma60 && <span className="ma-badge ma60" title="跌破60日线">60</span>}
+                                    {maCache[f.code].ma10 && <span className="ma-badge ma10" title="跌破10日线">10</span>}
+                                    {maCache[f.code].ma5 && <span className="ma-badge ma5" title="跌破5日线">5</span>}
+                                  </span>
+                                )}
                               </div>
                             </div>
 
@@ -2658,6 +2870,7 @@ export default function HomePage() {
             holding={holdings[chartFund.code]}
             intradayData={intradayRecords[chartFund.code]?.records || []}
             onClose={() => setChartFund(null)}
+            onMAUpdate={handleMAUpdate}
           />
         )}
       </AnimatePresence>

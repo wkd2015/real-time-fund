@@ -1370,6 +1370,139 @@ body {
   color: var(--success);
 }
 
+.chart-tooltip-ma {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.chart-tooltip-ma div {
+  margin-top: 2px;
+}
+
+/* 均线图例和状态 */
+.ma-legend {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ma-legend-items {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+}
+
+.ma-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ma-status {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ma-alert {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.ma-alert.ma5 {
+  background: rgba(245, 158, 11, 0.2);
+  color: #f59e0b;
+}
+
+.ma-alert.ma10 {
+  background: rgba(139, 92, 246, 0.2);
+  color: #8b5cf6;
+}
+
+.ma-alert.ma60 {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.ma-ok {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(52, 211, 153, 0.2);
+  color: var(--success);
+  font-weight: 500;
+}
+
+/* 列表/卡片中的均线标注 */
+.ma-badges {
+  display: inline-flex;
+  gap: 3px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.ma-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.ma-badge.ma5 {
+  background: rgba(245, 158, 11, 0.25);
+  color: #f59e0b;
+}
+
+.ma-badge.ma10 {
+  background: rgba(139, 92, 246, 0.25);
+  color: #8b5cf6;
+}
+
+.ma-badge.ma60 {
+  background: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+}
+
+/* 刷新均线按钮 */
+.ma-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ma-refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.ma-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ma-refresh-btn .spin {
+  animation: spin 1s linear infinite;
+}
+
 /* Recharts 覆写 */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
