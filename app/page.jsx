@@ -6,6 +6,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, Area
 import Announcement from "./components/Announcement";
 import OperationManager from "./components/OperationManager";
 import { getFundHistory, getFundIntraday } from './lib/historyApi';
+import { generateAIReport, exportReportAsJSON, generateAIPrompt } from './lib/aiAnalysisReport';
+import { getAllOperations } from './lib/operationStore';
 
 function PlusIcon(props) {
   return (
@@ -51,6 +53,25 @@ function RefreshIcon(props) {
       <path d="M16 5h3v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M20 12a8 8 0 0 1-12.5 6.9" stroke="currentColor" strokeWidth="2" />
       <path d="M8 19H5v-3" stroke="currentColor" strokeWidth="2" />
+    </svg>
+  );
+}
+
+function AIIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L2 7l10 5 10-5-10-5z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 17l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function CopyIcon(props) {
+  return (
+    <svg {...props} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+      <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke="currentColor" strokeWidth="2" />
     </svg>
   );
 }
@@ -1599,6 +1620,12 @@ export default function HomePage() {
   const [maCache, setMACache] = useState({});
   const [maRefreshing, setMARefreshing] = useState(false);
 
+  // AI 分析报告
+  const [aiReportModalOpen, setAIReportModalOpen] = useState(false);
+  const [aiReport, setAIReport] = useState(null);
+  const [aiReportLoading, setAIReportLoading] = useState(false);
+  const [aiReportCopied, setAIReportCopied] = useState(false);
+
   // 盘中估值记录 { [code]: { date: string, records: [{time, gsz, gszzl}] } }
   const [intradayRecords, setIntradayRecords] = useState({});
   const intradayTimerRef = useRef(null);
@@ -1752,6 +1779,57 @@ export default function HomePage() {
     }
     
     setMARefreshing(false);
+  };
+
+  // 生成 AI 分析报告
+  const handleGenerateAIReport = async () => {
+    if (aiReportLoading) return;
+    
+    setAIReportLoading(true);
+    setAIReportModalOpen(true);
+    setAIReport(null);
+    setAIReportCopied(false);
+    
+    try {
+      // 从 IndexedDB 获取操作记录并构建映射
+      const allOperations = await getAllOperations();
+      const operationsMap = {};
+      allOperations.forEach(op => {
+        if (!operationsMap[op.fundCode]) {
+          operationsMap[op.fundCode] = [];
+        }
+        operationsMap[op.fundCode].push(op);
+      });
+      
+      const report = await generateAIReport(funds, holdings, operationsMap, {
+        includeMarket: true,
+        onlyWithHoldings: true
+      });
+      
+      setAIReport(report);
+    } catch (e) {
+      console.error('生成 AI 报告失败', e);
+      setAIReport({ success: false, error: e.message || '生成报告失败' });
+    }
+    
+    setAIReportLoading(false);
+  };
+
+  // 复制 AI 报告
+  const handleCopyAIReport = async (format = 'prompt') => {
+    if (!aiReport) return;
+    
+    try {
+      const text = format === 'prompt' 
+        ? generateAIPrompt(aiReport)
+        : exportReportAsJSON(aiReport);
+      
+      await navigator.clipboard.writeText(text);
+      setAIReportCopied(true);
+      setTimeout(() => setAIReportCopied(false), 2000);
+    } catch (e) {
+      console.error('复制失败', e);
+    }
   };
 
   const toggleFavorite = (code) => {
@@ -2444,6 +2522,17 @@ export default function HomePage() {
                   <RefreshIcon width="12" height="12" className={maRefreshing ? 'spin' : ''} />
                   {maRefreshing ? '刷新中...' : '刷新均线'}
                 </button>
+
+                {/* AI 分析报告按钮 */}
+                <button
+                  className="ai-report-btn"
+                  onClick={handleGenerateAIReport}
+                  disabled={aiReportLoading}
+                  title="生成 AI 分析报告"
+                >
+                  <AIIcon width="12" height="12" className={aiReportLoading ? 'spin' : ''} />
+                  {aiReportLoading ? '生成中...' : 'AI 分析'}
+                </button>
               </div>
             </div>
           )}
@@ -2989,6 +3078,147 @@ export default function HomePage() {
           });
         }}
       />
+
+      {/* AI 分析报告弹窗 */}
+      {aiReportModalOpen && (
+        <div className="modal-overlay" onClick={() => setAIReportModalOpen(false)}>
+          <motion.div
+            className="modal ai-report-modal"
+            onClick={(e) => e.stopPropagation()}
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+          >
+            <div className="modal-header">
+              <h3>AI 分析报告</h3>
+              <button className="icon-button" onClick={() => setAIReportModalOpen(false)}>
+                <CloseIcon width="20" height="20" />
+              </button>
+            </div>
+            
+            <div className="modal-body ai-report-content">
+              {aiReportLoading ? (
+                <div className="ai-report-loading">
+                  <RefreshIcon width="24" height="24" className="spin" />
+                  <p>正在生成报告，请稍候...</p>
+                  <p className="muted" style={{ fontSize: '12px' }}>获取市场数据和计算技术指标中</p>
+                </div>
+              ) : aiReport?.success ? (
+                <>
+                  {/* 报告摘要 */}
+                  <div className="ai-report-summary">
+                    <div className="ai-report-stat">
+                      <span className="label">持仓基金</span>
+                      <span className="value">{aiReport.summary.totalFunds} 只</span>
+                    </div>
+                    <div className="ai-report-stat">
+                      <span className="label">总市值</span>
+                      <span className="value">¥{aiReport.summary.totalValue.toLocaleString()}</span>
+                    </div>
+                    <div className="ai-report-stat">
+                      <span className="label">总收益</span>
+                      <span className={`value ${aiReport.summary.totalProfit >= 0 ? 'down' : 'up'}`}>
+                        {aiReport.summary.totalProfit >= 0 ? '+' : ''}{aiReport.summary.totalProfit.toLocaleString()}
+                        ({aiReport.summary.avgProfitRate >= 0 ? '+' : ''}{aiReport.summary.avgProfitRate}%)
+                      </span>
+                    </div>
+                  </div>
+                  
+                  {/* 市场环境 */}
+                  {aiReport.market && (
+                    <div className="ai-report-section">
+                      <h4>市场环境</h4>
+                      <div className="ai-report-market">
+                        <div className="market-sentiment">
+                          <span className="label">市场情绪</span>
+                          <span className={`sentiment-badge ${aiReport.market.sentiment.level}`}>
+                            {aiReport.market.sentiment.description || aiReport.market.sentiment.level}
+                          </span>
+                        </div>
+                        {aiReport.market.benchmark && (
+                          <div className="market-benchmark">
+                            <span className="label">{aiReport.market.benchmark.name}</span>
+                            <span className={aiReport.market.benchmark.changePct >= 0 ? 'down' : 'up'}>
+                              {aiReport.market.benchmark.changePct >= 0 ? '+' : ''}
+                              {aiReport.market.benchmark.changePct?.toFixed(2)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* 各基金指标 */}
+                  <div className="ai-report-section">
+                    <h4>技术指标</h4>
+                    <div className="ai-report-funds">
+                      {aiReport.funds.map(f => (
+                        <div key={f.basic.code} className="ai-report-fund-item">
+                          <div className="fund-header">
+                            <span className="fund-name">{f.basic.name}</span>
+                            <span className={`fund-profit ${f.basic.profitRate >= 0 ? 'down' : 'up'}`}>
+                              {f.basic.profitRate !== null ? `${f.basic.profitRate >= 0 ? '+' : ''}${f.basic.profitRate}%` : '-'}
+                            </span>
+                          </div>
+                          {f.indicators && (
+                            <div className="fund-indicators">
+                              <span className={`indicator ${f.indicators.maAnalysis?.ma5?.position === 'above' ? 'bullish' : 'bearish'}`}>
+                                MA5 {f.indicators.maAnalysis?.ma5?.position === 'above' ? '▲' : '▼'}
+                              </span>
+                              {f.indicators.rsi && (
+                                <span className={`indicator ${f.indicators.rsi > 70 ? 'overbought' : f.indicators.rsi < 30 ? 'oversold' : ''}`}>
+                                  RSI {f.indicators.rsi.toFixed(0)}
+                                </span>
+                              )}
+                              {f.indicators.boll?.position && (
+                                <span className="indicator">
+                                  BOLL {f.indicators.boll.position}
+                                </span>
+                              )}
+                              {f.indicators.cross !== 'none' && (
+                                <span className={`indicator ${f.indicators.cross === 'golden' ? 'golden' : 'dead'}`}>
+                                  {f.indicators.cross === 'golden' ? '金叉' : '死叉'}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* 复制按钮 */}
+                  <div className="ai-report-actions">
+                    <button
+                      className="button primary"
+                      onClick={() => handleCopyAIReport('prompt')}
+                    >
+                      <CopyIcon width="14" height="14" />
+                      {aiReportCopied ? '已复制！' : '复制提示词'}
+                    </button>
+                    <button
+                      className="button"
+                      onClick={() => handleCopyAIReport('json')}
+                    >
+                      <CopyIcon width="14" height="14" />
+                      复制 JSON
+                    </button>
+                  </div>
+                  <p className="ai-report-tip muted">
+                    复制后粘贴给 Gemini Pro 或其他 AI 进行分析
+                  </p>
+                </>
+              ) : (
+                <div className="ai-report-error">
+                  <p>生成报告失败</p>
+                  <p className="muted">{aiReport?.error || '未知错误'}</p>
+                  <button className="button" onClick={handleGenerateAIReport}>重试</button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
